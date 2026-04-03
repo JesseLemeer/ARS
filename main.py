@@ -17,12 +17,27 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("ARS Group 21")
 clock = pygame.time.Clock()
 
+walls = [
+    #first, boundary walls to prevent the robot from flying off 
+    ((-380, -280), (380, -280)),
+    ((380, -280), (380, 280)),
+    ((380, 280), (-380, 280)),
+    ((-380, 280), (-380, -280)),#then,some very provisional "roadlike" blocks -> road delimiters, essentially
+    ((-360, -20), (-20, -20)),
+    ((-360, 20), (-20, 20)),
+    ((-20,255),(-20,20)),
+    ((20,255),(20,20)),
+    ((355, -20), (20, -20)),
+    ((355, 20), (20, 20)),
+    ((-20,-255),(-20,-20)),
+    ((20,-255),(20,-20)),
+    ((-360,20),(-20,255))
+]
 
 running = True
 while running:
     
     for event in pygame.event.get():
-        #Closing
         if event.type == pygame.QUIT:
             running = False
 
@@ -45,7 +60,11 @@ while running:
     #Draw
     #Background
     screen.fill((255, 255, 255))
-    
+    for wall in walls:
+        start_x, start_y = mm.world_to_screen(wall[0][0], wall[0][1], WIDTH, HEIGHT)
+        end_x, end_y = mm.world_to_screen(wall[1][0], wall[1][1], WIDTH, HEIGHT)
+        
+        pygame.draw.line(screen, BLACK, (start_x, start_y), (end_x, end_y), 3)
     #Robot
     screen_x, screen_y = mm.world_to_screen(mm.x, mm.y, WIDTH, HEIGHT)
     pygame.draw.circle(screen, ORANGE, (screen_x, screen_y), RADIUS_ROBOT)
@@ -63,7 +82,7 @@ while running:
     mm.dt = clock.tick(60) / 1000
     
     #Updates x, y and theta
-    mm.update()
+    mm.update(walls,RADIUS_ROBOT)
 
 pygame.quit()
 sys.exit()
