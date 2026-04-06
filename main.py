@@ -1,6 +1,7 @@
 import pygame
 import sys
 import motionmodel as mm
+import map as mp
 
 pygame.init()
 
@@ -17,22 +18,7 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("ARS Group 21")
 clock = pygame.time.Clock()
 
-walls = [
-    #first, boundary walls to prevent the robot from flying off 
-    ((-380, -280), (380, -280)),
-    ((380, -280), (380, 280)),
-    ((380, 280), (-380, 280)),
-    ((-380, 280), (-380, -280)),#then,some very provisional "roadlike" blocks -> road delimiters, essentially
-    ((-360, -20), (-20, -20)),
-    ((-360, 20), (-20, 20)),
-    ((-20,255),(-20,20)),
-    ((20,255),(20,20)),
-    ((355, -20), (20, -20)),
-    ((355, 20), (20, 20)),
-    ((-20,-255),(-20,-20)),
-    ((20,-255),(20,-20)),
-    ((-360,20),(-20,255))
-]
+walls = mp.create_map()
 
 running = True
 while running:
