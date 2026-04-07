@@ -102,5 +102,7 @@ def create_map():
 
     add_line_vertical(walls, -300, -200, -280)
     add_line_vertical(walls, -300, 200, 280)
-
+    add_line_vertical(walls, -280, 230, 280) 
+    add_line_vertical(walls, -250, 230, 280)
+    add_line_vertical(walls, -210, 230, 280)
     return walls

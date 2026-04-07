@@ -10,6 +10,7 @@ ORANGE = (255, 77, 0)
 BLACK = (0, 0, 0)
 BLUE = (70, 130, 180)
 RED = (200, 0, 0)
+GREEN = (0, 200, 0) 
 
 OMEGA = 5.0
 VELOCITY = 100.0
@@ -91,12 +92,17 @@ while running:
         distance_text = font.render(f"{dist:.1f}", True, BLACK)
         screen.blit(distance_text, (label_screen_x, label_screen_y))
 
+    collisions = mm.update(walls, COLLISION_RADIUS)
+    # Draw rectangular car
+    # Robot color: green normally, red on collision
+    robot_color = GREEN # green
+    if collisions:
+        robot_color = RED  # red
+
     # Draw rectangular car
     car_corners_world = mm.get_robot_corners(CAR_LENGTH, CAR_WIDTH)
-    car_corners_screen = [
-        mm.world_to_screen(px, py, WIDTH, HEIGHT) for px, py in car_corners_world
-    ]
-    pygame.draw.polygon(screen, ORANGE, car_corners_screen)
+    car_corners_screen = [mm.world_to_screen(px, py, WIDTH, HEIGHT) for px, py in car_corners_world]
+    pygame.draw.polygon(screen, robot_color, car_corners_screen)
     pygame.draw.polygon(screen, BLACK, car_corners_screen, 2)
 
     # Front direction line
@@ -117,7 +123,7 @@ while running:
     mm.dt = clock.tick(60) / 1000
 
     # Update robot pose
-    mm.update(walls, COLLISION_RADIUS)
+    
 
 pygame.quit()
 sys.exit()

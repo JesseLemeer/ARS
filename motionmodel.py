@@ -75,6 +75,7 @@ def velocity_step():
 
 
 def resolve_sliding(px, py, dx, dy, walls, radius, iterations=4):
+    collision_happened = False
     for _ in range(iterations):
         nx = px + dx
         ny = py + dy
@@ -82,16 +83,17 @@ def resolve_sliding(px, py, dx, dy, walls, radius, iterations=4):
 
         for wall in walls:
             dist = get_distance_to_segment(nx, ny, wall[0][0], wall[0][1], wall[1][0], wall[1][1])
-
+            
             if dist < radius:
                 collided = True
+                collision_happened = True
                 normal_x, normal_y = wall_normal_for_point(wall, nx, ny)
-
+                
                 dot = dx * normal_x + dy * normal_y
                 if dot < 0.0:
                     dx -= dot * normal_x
                     dy -= dot * normal_y
-
+               
                 nx = px + dx
                 ny = py + dy
 
@@ -106,26 +108,32 @@ def resolve_sliding(px, py, dx, dy, walls, radius, iterations=4):
         if not collided:
             break
 
-    return px + dx, py + dy
+    return px + dx, py + dy, collision_happened
 
 def update(walls, radius):
     global x, y, theta
-
+   
     dx, dy, dtheta = velocity_step()
 
     max_step = radius * 0.5
     dist = math.hypot(dx, dy)
-
+    
     steps = max(1, int(dist / max_step) + 1)
 
     step_dx = dx / steps
     step_dy = dy / steps
     step_dtheta = dtheta / steps
 
+    collision_occurred = False
     for _ in range(steps):
-        new_x, new_y = resolve_sliding(x, y, step_dx, step_dy, walls, radius)
+        new_x, new_y, collided = resolve_sliding(x, y, step_dx, step_dy, walls, radius)
         x, y = new_x, new_y
         theta += step_dtheta
+        
+        if collided:
+            collision_occurred = True
+
+    return collision_occurred
 
 
 def line_endpoint(length):
