@@ -20,10 +20,6 @@ def reset_robot():
 
 
 def measure_linear_resolution(velocity: float) -> float:
-    """
-    Minimum linear step = displacement from exactly one frame of motion.
-    The robot cannot move less than this with binary on/off control.
-    """
     reset_robot()
     mm_module.v = velocity
     mm_module.omega = 0.0
@@ -31,7 +27,6 @@ def measure_linear_resolution(velocity: float) -> float:
     x_before = mm_module.x
     y_before = mm_module.y
 
-    # One frame
     dx, dy, _ = mm_module.velocity_step()
     mm_module.x += dx
     mm_module.y += dy
@@ -40,10 +35,6 @@ def measure_linear_resolution(velocity: float) -> float:
 
 
 def measure_angular_resolution(omega: float) -> float:
-    """
-    Minimum angular step = rotation from exactly one frame of motion.
-    The robot cannot rotate less than this with binary on/off control.
-    """
     reset_robot()
     mm_module.v = 0.0
     mm_module.omega = omega
@@ -86,7 +77,6 @@ def plot_results(linear_results: dict, angular_results: dict):
         fontsize=13
     )
 
-    # --- Left: linear resolution ---
     ax = axes[0]
     velocities = list(linear_results.keys())
     steps_px = list(linear_results.values())
@@ -106,11 +96,9 @@ def plot_results(linear_results: dict, angular_results: dict):
     ax.legend()
     ax.grid(True, axis="y", alpha=0.3)
 
-    # Annotate bars
     for i, (v, s) in enumerate(zip(velocities, steps_px)):
         ax.text(i, s + 0.02, f"{s:.2f}px", ha="center", va="bottom", fontsize=8)
 
-    # --- Right: angular resolution ---
     ax2 = axes[1]
     omegas = list(angular_results.keys())
     steps_rad = list(angular_results.values())
