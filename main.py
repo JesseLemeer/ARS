@@ -19,8 +19,6 @@ VELOCITY = 100.0
 CAR_LENGTH = 24
 CAR_WIDTH = 14
 
-# Collision still uses circular approximation
-COLLISION_RADIUS = 10
 
 WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
