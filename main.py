@@ -53,6 +53,8 @@ while running:
         mm.v = -VELOCITY
     else:
         mm.v = 0.0
+    mm.dt = clock.tick(60) / 1000
+    collisions = mm.update(walls, CAR_LENGTH, CAR_WIDTH)
 
     # Current sensor readings
     sensor_readings = mm.get_sensor_readings(walls)
@@ -92,7 +94,6 @@ while running:
         distance_text = font.render(f"{dist:.1f}", True, BLACK)
         screen.blit(distance_text, (label_screen_x, label_screen_y))
 
-    collisions = mm.update(walls, COLLISION_RADIUS)
     # Draw rectangular car
     # Robot color: green normally, red on collision
     robot_color = GREEN # green
@@ -112,17 +113,13 @@ while running:
     pygame.draw.line(screen, BLACK, (screen_x, screen_y), (fx_screen, fy_screen), 2)
 
     # # v and omega displayed in the top corner
-    # v_text = font.render(f"v = {mm.v:.1f}", True, BLACK)
-    # omega_text = font.render(f"omega = {mm.omega:.2f}", True, BLACK)
-    # screen.blit(v_text, (10, 10))
-    # screen.blit(omega_text, (10, 30))
+    v_text = font.render(f"v = {mm.v:.1f}", True, BLACK)
+    omega_text = font.render(f"omega = {mm.omega:.2f}", True, BLACK)
+    screen.blit(v_text, (10, 10))
+    screen.blit(omega_text, (10, 30))
 
     pygame.display.flip()
 
-    # FPS and timestep
-    mm.dt = clock.tick(60) / 1000
-
-    # Update robot pose
     
 
 pygame.quit()
