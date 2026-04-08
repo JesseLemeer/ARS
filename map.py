@@ -51,6 +51,9 @@ def add_line_horizontal(walls, x1, x2, y):
 def add_line_vertical(walls, x, y1, y2):
     walls.append(((x, y1), (x, y2)))
 
+def add_line(walls, x1, y1, x2, y2):
+    walls.append(((x1, y1), (x2, y2)))
+
 
 def add_roundabout(walls, center_x, center_y, radius, segments=20):
     for i in range(segments):
@@ -105,4 +108,12 @@ def create_map():
     add_line_vertical(walls, -280, 230, 280) 
     add_line_vertical(walls, -250, 230, 280)
     add_line_vertical(walls, -210, 230, 280)
+
+    # diagonal roads (top-right area)
+    add_line(walls, 330, 200, 380, 240)
+    add_line(walls, 250, 200, 200, 240) 
+    add_line(walls, 240, 280, 290, 240)
+    add_line(walls, 340, 280, 290, 240)
+    add_line(walls, 200, 240, 40, 200)
+    
     return walls
