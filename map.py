@@ -54,7 +54,6 @@ def add_line_vertical(walls, x, y1, y2):
 def add_line(walls, x1, y1, x2, y2):
     walls.append(((x1, y1), (x2, y2)))
 
-
 def add_roundabout(walls, center_x, center_y, radius, segments=20):
     for i in range(segments):
         angle1 = 2 * math.pi * i / segments
@@ -69,7 +68,8 @@ def add_roundabout(walls, center_x, center_y, radius, segments=20):
 
 def create_map():
     walls = []
-
+    landmarks = []
+    LANDMARKS = [[-300, 0], [100, 100], [-312, 145], [278, -203], [-87, 91], [341, 217], [-156, -74],[203, -189], [-367, 112], [94, 261], [-241, -238], [318, 43]]
     # Boundary
     add_rectangle(walls, -380, -280, 380, 280)
 
@@ -102,6 +102,9 @@ def create_map():
     add_arc(walls, center_x=-380, center_y=200,  radius=80, start_angle_deg=270, end_angle_deg=360)
     # Bottom-left boundary corner
     add_arc(walls, center_x=-380, center_y=-200, radius=80, start_angle_deg=0,   end_angle_deg=90)
+    
+    for landmark in LANDMARKS:
+        add_arc(landmarks, landmark[0], landmark[1],5,0,360)
 
     add_line_vertical(walls, -300, -200, -280)
     add_line_vertical(walls, -300, 200, 280)
@@ -116,4 +119,6 @@ def create_map():
     add_line(walls, 340, 280, 290, 240)
     add_line(walls, 200, 240, 40, 200)
     
-    return walls
+    
+    
+    return walls,landmarks

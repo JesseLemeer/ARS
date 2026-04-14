@@ -1,4 +1,5 @@
 import math
+import numpy as np
 EPS = 1e-9
 
 # Starting coordinates
@@ -11,8 +12,8 @@ omega = 0.0
 # Timestep
 dt = 0.0
 
-SENSOR_ANGLES_DEG = [i * 30 for i in range(12)]
-SENSOR_MAX_RANGE = 200.0
+SENSOR_ANGLES_DEG = [i * 10 for i in range(36)]
+SENSOR_MAX_RANGE = 100.0
 
 
 def world_to_screen(world_x, world_y, width, height):
@@ -226,7 +227,6 @@ def get_sensor_readings(walls, sensor_angles_deg=None, max_range=SENSOR_MAX_RANG
         })
 
     return readings
-
 
 def get_robot_corners(length, width):
     half_l = length / 2
