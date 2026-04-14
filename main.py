@@ -106,6 +106,16 @@ while running:
 
         sensor_angle = mm.theta + math.radians(reading["angle_deg"])
         dist = reading["distance"]
+        
+        #Checking phi and r if sensor sees landmark (distance is lower than 100)
+        #We need these for the correction step
+        #I think it could make sense that the phi is integer, 
+        #because of the static change in theta, but not sure
+        if(dist!=100.0):
+            print(dist) #r
+            print(reading["angle_deg"]) #phi
+        
+     
 
         label_world_x = mm.x + 0.6 * dist * math.cos(sensor_angle)
         label_world_y = mm.y + 0.6 * dist * math.sin(sensor_angle)
