@@ -3,6 +3,7 @@ import sys
 import math
 import motionmodel as mm
 import map as mp
+import filter as kf
 
 pygame.init()
 
@@ -94,6 +95,8 @@ while running:
         screen.blit(distance_text, (label_screen_x, label_screen_y))
     '''
     
+    landmark_measurements = []
+    
     for reading in landmark_readings:
         hit_x, hit_y = reading["hit_point"]
         hit_screen_x, hit_screen_y = mm.world_to_screen(hit_x, hit_y, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -109,12 +112,12 @@ while running:
         
         #Checking phi and r if sensor sees landmark (distance is lower than 100)
         #We need these for the correction step
-        #I think it could make sense that the phi is integer, 
-        #because of the static change in theta, but not sure
+        #It makes sense that the phi is integer, it is just the different beams every 10 degrees
         if(dist!=100.0):
-            print(dist) #r
-            print(reading["angle_deg"]) #phi
-        
+            # print(dist) #r
+            # print(reading["angle_deg"]) #phi
+            # print(reading["hitpoint"])
+            landmark_measurements.append(reading)
      
 
         label_world_x = mm.x + 0.6 * dist * math.cos(sensor_angle)
@@ -128,6 +131,10 @@ while running:
 
         distance_text = font.render(f"{dist:.1f}", True, BLACK)
         screen.blit(distance_text, (label_screen_x, label_screen_y))
+        
+    # print(landmark_measurements)
+    kf.get_estimated_pose(landmark_measurements)
+
     # Draw rectangular car
     # Robot color: green normally, red on collision
     robot_color = GREEN # green
