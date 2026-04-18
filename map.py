@@ -70,9 +70,7 @@ def create_map():
     walls = []
     landmarks = []
     LANDMARKS = [[-300, 0], [100, 100], [-312, 145], [278, -203], [-87, 91], [341, 217], [-156, -74],[203, -189], [-367, 112], [94, 261], [-241, -238], [318, 43]]
-    # Boundary
-    add_rectangle(walls, -380, -280, 380, 280)
-
+    
     # One intersection at (0,0)
     add_horizontal_corridor(walls, -200, 250, 0, 80, gap_start=-40, gap_end=40)
     add_vertical_corridor(walls, 0, -200, 200, 80, gap_start=-40, gap_end=40)
@@ -81,44 +79,66 @@ def create_map():
     #upper
     add_line_horizontal(walls, -200, -40, 200)
     add_line_vertical(walls, -200, 200, 40)
-
     #lower
     add_line_vertical(walls, -200, -200, -40)
     add_line_horizontal(walls, -200, -40, -200)
 
     #adding two dead end roads (on the right of map)
-    add_vertical_corridor(walls, 290, -280, 200, 80,gap_start=-40, gap_end=40)
-    add_horizontal_corridor(walls, 330, 380,  0, 80)
+    add_vertical_corridor(walls, 290, -360, 200, 80,gap_start=-40, gap_end=40)
+    add_horizontal_corridor(walls, 330, 400,  0, 80)
 
     add_line_horizontal(walls, 40, 250, 200)
     add_line_horizontal(walls, 40, 190, -200)
-    add_line_horizontal(walls, 330, 380, 200)
+    
     add_line_vertical(walls, 190, -200, -100)
 
+    #roundabout structure on the left side of the map
     add_roundabout(walls, center_x=-300, center_y=0, radius=30)
-    
+    # arc down of the map
+    add_arc(walls, center_x=-380, center_y=-200, radius=80, start_angle_deg=0,   end_angle_deg=180)
+    #makes the box under the arc
+    add_line_vertical(walls, -300, -200, -280)
+    add_line_vertical(walls, -460, -200, -280)
+    add_line_horizontal(walls, -460, -300, -280)
+    #arc top of the map
+    add_arc(walls, center_x=-380, center_y=200,  radius=80, start_angle_deg=180, end_angle_deg=360)
+    #makes the box on top of the arc 
+    add_line_vertical(walls, -300, 200, 280)
+    add_line_vertical(walls, -460, 200, 280)
+    add_line_horizontal(walls, -460, -300,280)
+    #arc in the middle
+    add_arc(walls, center_x=-460, center_y=0, radius=40, start_angle_deg=270,   end_angle_deg=450)
+    #2 arcs coming out of the on in the middle
+    add_arc(walls, center_x=-460, center_y=120, radius=80, start_angle_deg=180,   end_angle_deg=270)
+    add_arc(walls, center_x=-460, center_y=-120, radius=80, start_angle_deg=90,   end_angle_deg=180)
+    add_line_vertical(walls, -540, 120, 360) #map boundary 
+    add_line_vertical(walls, -540, -120, -360) #map boundary 
+   
+    #outer boundary 
+    add_line_horizontal(walls, -540, 400, -360)
+    add_line_horizontal(walls, -540, 400, 360)
+    add_line_vertical(walls, 400, 360, -360) 
+  
 
-    #top-left boundary corner
-    add_arc(walls, center_x=-380, center_y=200,  radius=80, start_angle_deg=270, end_angle_deg=360)
-    # Bottom-left boundary corner
-    add_arc(walls, center_x=-380, center_y=-200, radius=80, start_angle_deg=0,   end_angle_deg=90)
-    
     for landmark in LANDMARKS:
         add_arc(landmarks, landmark[0], landmark[1],5,0,360)
 
-    add_line_vertical(walls, -300, -200, -280)
-    add_line_vertical(walls, -300, 200, 280)
+    
+    
     add_line_vertical(walls, -280, 230, 280) 
     add_line_vertical(walls, -250, 230, 280)
     add_line_vertical(walls, -210, 230, 280)
 
     # diagonal roads (top-right area)
-    add_line(walls, 330, 200, 380, 240)
-    add_line(walls, 250, 200, 200, 240) 
-    add_line(walls, 240, 280, 290, 240)
-    add_line(walls, 340, 280, 290, 240)
+    add_line(walls, 330, 200, 400, 260) #right diagonal
+    add_line_horizontal(walls, 330, 400, 200) #line under right diagonal
+    add_line(walls, 250, 200, 200, 240) #left diagonal 
+    add_line(walls, 240, 280, 290, 240) #upper left diagonal
+    add_line(walls, 340, 280, 290, 240) #upper right diagonal
+    add_line_horizontal(walls, 240, 340, 280) #line connecting the two upper diagonals
     add_line(walls, 200, 240, 40, 200)
     
+   
+
+    return walls, landmarks
     
-    
-    return walls,landmarks

@@ -15,11 +15,10 @@ dt = 0.0
 SENSOR_ANGLES_DEG = [i * 10 for i in range(36)]
 SENSOR_MAX_RANGE = 100.0
 
-
-def world_to_screen(world_x, world_y, width, height):
-    screen_x = width / 2 + int(world_x)
-    screen_y = height / 2 - int(world_y)
-    return screen_x, screen_y
+def world_to_screen(wx, wy, screen_width, screen_height):
+    screen_x = wx - x + screen_width / 2
+    screen_y = -(wy - y) + screen_height / 2   
+    return int(screen_x), int(screen_y)
 
 
 def get_distance_to_segment(px, py, x1, y1, x2, y2):
