@@ -2,11 +2,11 @@ import math
 import numpy as np
 from itertools import combinations
 
-#ChatGPT
-def _wrap_angle(angle):
-    return (angle + math.pi) % (2 * math.pi) - math.pi
+#Normalizes any radian angle into the range [-pi, pi]
+def normalize_angle(angle_rad):
+    return (angle_rad + math.pi) % (2 * math.pi) - math.pi
 
-#ChatGPT
+
 def triangulation(measurement_a, measurement_b):
     x1, y1 = measurement_a["hit_point"]
     x2, y2 = measurement_b["hit_point"]
@@ -15,52 +15,60 @@ def triangulation(measurement_a, measurement_b):
     phi1 = math.radians(measurement_a["angle_deg"])
     phi2 = math.radians(measurement_b["angle_deg"])
 
+    #Distance between the two landmarks
     dx = x2 - x1
     dy = y2 - y1
-    d = math.hypot(dx, dy)
+    #Euclidean distance between them
+    d = math.sqrt(dx**2 + dy**2)
 
-    if d == 0.0:
+    #Check for same landmark, can happen when the robot is very close to a landmark
+    #If both measurements hit the same landmark we cannot use this
+    #Radius of a landmark is 5, so distance between is max 10
+    #We assume there is no two landmarks closer than 10 to each other
+    if d <= 10.0:
         return None
+    #Check for no intersection or one circle inside the other
     if d > r1 + r2 or d < abs(r1 - r2):
         return None
-
-    a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
-    h_sq = r1 ** 2 - a ** 2
-    if h_sq < 0.0:
-        if h_sq > -1e-9:
-            h_sq = 0.0
-        else:
-            return None
-
-    h = math.sqrt(h_sq)
-    mid_x = x1 + a * dx / d
-    mid_y = y1 + a * dy / d
+    
+    #Distance from x1 to the perpendicular crossing point
+    projection = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
+    
+    #Height from the crossing point to the intersection points
+    h = math.sqrt(r1 ** 2 - projection ** 2)
+   
+    cross_x = x1 + projection * dx / d
+    cross_y = y1 + projection * dy / d
 
     offset_x = -dy * h / d
     offset_y = dx * h / d
+    
+    #Now we have two candidate positions 
     candidates = [
-        (mid_x + offset_x, mid_y + offset_y),
-        (mid_x - offset_x, mid_y - offset_y),
+        (cross_x + offset_x, cross_y + offset_y),
+        (cross_x - offset_x, cross_y - offset_y)
     ]
 
     best_pose = None
-    best_error = float("inf")
+    best_error = math.inf
 
-    for robot_x, robot_y in candidates:
-        global_angle_1 = math.atan2(y1 - robot_y, x1 - robot_x)
-        global_angle_2 = math.atan2(y2 - robot_y, x2 - robot_x)
-        theta_1 = _wrap_angle(global_angle_1 - phi1)
-        theta_2 = _wrap_angle(global_angle_2 - phi2)
-        error = abs(_wrap_angle(theta_1 - theta_2))
+    #Keep the candidate with the smallest angle error
+    for candidate_x, candidate_y in candidates:
+        global_angle_1 = math.atan2(y1 - candidate_y, x1 - candidate_x)
+        global_angle_2 = math.atan2(y2 - candidate_y, x2 - candidate_x)
+        
+        theta_1 = normalize_angle(global_angle_1 - phi1)
+        theta_2 = normalize_angle(global_angle_2 - phi2)
+        error = abs(normalize_angle(theta_1 - theta_2))
 
         if error < best_error:
             best_error = error
-            best_pose = (robot_x, robot_y, _wrap_angle((theta_1 + theta_2) / 2.0))
+            best_pose = (candidate_x, candidate_y, normalize_angle((theta_1 + theta_2) / 2.0))
 
     return best_pose
 
 #If we observe several landmarks, we use the average pose estimated over all combinations of landmarks
-def get_estimated_pose(measurements):
+def get_estimated_pose(measurements, debug=True):
     if len(measurements) < 2:
         return None
 
@@ -75,10 +83,15 @@ def get_estimated_pose(measurements):
 
     x_avg = sum(pose[0] for pose in poses) / len(poses)
     y_avg = sum(pose[1] for pose in poses) / len(poses)
-    theta_avg = math.atan2(sum(math.sin(pose[2]) for pose in poses), sum(math.cos(pose[2]) for pose in poses))
-    
-    #theta_avg is in radians
-    print(f"Estimated pose: X = {x_avg:.2f}, Y = {y_avg:.2f}, theta = {math.degrees(theta_avg):.2f} deg")
+    theta_avg = normalize_angle(
+        math.atan2(
+            sum(math.sin(pose[2]) for pose in poses),
+            sum(math.cos(pose[2]) for pose in poses),
+        )
+    )
+
+    if debug:
+        print(f"Estimated pose: X = {x_avg:.2f}, Y = {y_avg:.2f}, theta = {theta_avg:.3f} rad")
 
     return x_avg, y_avg, theta_avg
 
@@ -86,38 +99,44 @@ def get_estimated_pose(measurements):
 def kalman_filter(x,y,theta,sigma_sq_x,sigma_sq_y, sigma_sq_theta, sigma_sq_Rx,sigma_sq_Ry, sigma_sq_Rtheta, sigma_sq_Qx,sigma_sq_Qy, sigma_sq_Qtheta, v,omega,dt, measurements):
     #prediction
     A = np.identity(3)
-    R = np.array([(sigma_sq_Rx,0,0),(0,sigma_sq_Ry),(0,0,sigma_sq_Rtheta)])
+    R = np.array([(sigma_sq_Rx,0,0),(0,sigma_sq_Ry,0),(0,0,sigma_sq_Rtheta)])
     u = np.array([[v],[omega]])
     B = np.array([(dt*math.cos(theta),0),(dt*math.sin(theta),0),(0,dt)])
 
-    mu_old = ([[x],[y],[theta]])
+    mu_old = np.array([[x],[y],[normalize_angle(theta)]])
     mu_new_bar = np.dot(A,mu_old) + np.dot(B,u)
+    mu_new_bar[2, 0] = normalize_angle(mu_new_bar[2, 0])
 
-    sigma_old= np.array([(sigma_sq_x,0,0),(0,sigma_sq_y),(0,0,sigma_sq_theta)])
+    sigma_old= np.array([(sigma_sq_x,0,0),(0,sigma_sq_y,0),(0,0,sigma_sq_theta)])
     sigma_new_bar = A @ sigma_old @ A.T + R
     
     #correction
 
-    estimated_pose = get_estimated_pose(measurements)
+    #Return prediction if no pose can be estimated from measurements
+    estimated_pose = get_estimated_pose(measurements, debug=False)
     if estimated_pose is None:
         return mu_new_bar, sigma_new_bar
 
     x_bar, y_bar, theta_bar = estimated_pose
 
-    eps_x = np.random.normal(0, 1.0)
-    eps_y = np.random.normal(0, 1.0)
-    eps_theta = np.random.normal(0, 0.05)
+    C = np.eye(3)
+    Q = np.array([(sigma_sq_Qx,0,0),(0,sigma_sq_Qy,0),(0,0,sigma_sq_Qtheta)])
+
+    eps_x = np.random.normal(0, math.sqrt(sigma_sq_Qx))
+    eps_y = np.random.normal(0, math.sqrt(sigma_sq_Qy))
+    eps_theta = np.random.normal(0, math.sqrt(sigma_sq_Qtheta))
 
     z = np.array([[x_bar + eps_x],
-                [y_bar + eps_y],
-                [theta_bar + eps_theta]])
-
-    C = np.eye(3)
-    Q = np.array([(sigma_sq_Qx,0,0),(0,sigma_sq_Qy),(0,0,sigma_sq_Qtheta)])
+                  [y_bar + eps_y],
+                  [normalize_angle(theta_bar + eps_theta)]])
 
     K = sigma_new_bar @ C.T @ np.linalg.inv(C@sigma_new_bar@C.T + Q)
 
-    mu_new = mu_new_bar + K@(z-C@mu_new_bar)
+    innovation = z - C @ mu_new_bar
+    innovation[2, 0] = normalize_angle(innovation[2, 0])
+
+    mu_new = mu_new_bar + K @ innovation
+    mu_new[2, 0] = normalize_angle(mu_new[2, 0])
     sigma_new = (np.eye(3)-K@C)@sigma_new_bar
 
     return mu_new, sigma_new
