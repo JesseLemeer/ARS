@@ -35,7 +35,16 @@ def triangulation(measurement_a, measurement_b):
     projection = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
     
     #Height from the crossing point to the intersection points
-    h = math.sqrt(r1 ** 2 - projection ** 2)
+    h_sq = r1 ** 2 - projection ** 2
+    
+    #Non-negative check and floating point guard
+    if h_sq < 0:
+        if h_sq > -1e-6:  # Allow for small numerical errors
+            h_sq = 0
+        else:   
+            return None
+    
+    h = math.sqrt(h_sq)
    
     cross_x = x1 + projection * dx / d
     cross_y = y1 + projection * dy / d
