@@ -190,6 +190,73 @@ def ray_segment_intersection(rx, ry, rdx, rdy, x1, y1, x2, y2):
         return t, ix, iy
     return None
 
+def nearest_intersection_on_segments(ray_origin_x, ray_origin_y, ray_dir_x, ray_dir_y, segments, max_range):
+    best_dist = max_range
+    best_hit = None
+
+    for seg in segments:
+        result = ray_segment_intersection(
+            ray_origin_x, ray_origin_y, ray_dir_x, ray_dir_y,
+            seg[0][0], seg[0][1], seg[1][0], seg[1][1]
+        )
+        if result is None:
+            continue
+
+        dist, ix, iy = result
+        if dist < best_dist:
+            best_dist = dist
+            best_hit = (ix, iy)
+
+    if best_hit is None:
+        return None
+
+    return best_dist, best_hit[0], best_hit[1]
+
+def get_landmark_readings_with_occlusion(landmark_groups, walls, sensor_angles_deg=None, max_range=SENSOR_MAX_RANGE):
+    if sensor_angles_deg is None:
+        sensor_angles_deg = SENSOR_ANGLES_DEG
+
+    readings = []
+
+    for landmark in landmark_groups:
+        landmark_id = landmark["id"]
+        center = landmark["center"]
+        segments = landmark["segments"]
+
+        best_reading = None
+
+        for angle_deg in sensor_angles_deg:
+            angle = theta + math.radians(angle_deg)
+            dx = math.cos(angle)
+            dy = math.sin(angle)
+
+            landmark_hit = nearest_intersection_on_segments(x, y, dx, dy, segments, max_range)
+            if landmark_hit is None:
+                continue
+
+            landmark_dist, hit_x, hit_y = landmark_hit
+
+            wall_hit = nearest_intersection_on_segments(x, y, dx, dy, walls, max_range)
+
+            # If a wall is closer than the landmark along the same ray, landmark is occluded
+            if wall_hit is not None:
+                wall_dist, _, _ = wall_hit
+                if wall_dist < landmark_dist:
+                    continue
+
+            if (best_reading is None) or (landmark_dist < best_reading["distance"]):
+                best_reading = {
+                    "landmark_id": landmark_id,
+                    "landmark_center": center,
+                    "angle_deg": angle_deg,
+                    "distance": landmark_dist,
+                    "hit_point": (hit_x, hit_y),
+                }
+
+        if best_reading is not None:
+            readings.append(best_reading)
+
+    return readings
 
 def get_sensor_readings(walls, sensor_angles_deg=None, max_range=SENSOR_MAX_RANGE):
     if sensor_angles_deg is None:

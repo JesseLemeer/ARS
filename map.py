@@ -45,6 +45,20 @@ def add_arc(walls, center_x, center_y, radius, start_angle_deg, end_angle_deg, s
         y2 = center_y + radius * math.sin(t2)
         walls.append(((x1, y1), (x2, y2)))
 
+def make_arc_segments(center_x, center_y, radius, start_angle_deg, end_angle_deg, segments=12):
+    pieces = []
+    start = math.radians(start_angle_deg)
+    end = math.radians(end_angle_deg)
+    for i in range(segments):
+        t1 = start + (end - start) * i / segments
+        t2 = start + (end - start) * (i + 1) / segments
+        x1 = center_x + radius * math.cos(t1)
+        y1 = center_y + radius * math.sin(t1)
+        x2 = center_x + radius * math.cos(t2)
+        y2 = center_y + radius * math.sin(t2)
+        pieces.append(((x1, y1), (x2, y2)))
+    return pieces
+
 def add_line_horizontal(walls, x1, x2, y):
     walls.append(((x1, y), (x2, y)))
 
@@ -69,8 +83,25 @@ def add_roundabout(walls, center_x, center_y, radius, segments=20):
 def create_map():
     walls = []
     landmarks = []
-    LANDMARKS = [[-300, 0], [100, 100], [-312, 145], [278, -203], [-87, 91], [341, 217], [-156, -74],[203, -189], [-367, 112], [94, 261], [-241, -238], [318, 43]]
-    
+    landmark_groups = []
+
+    LANDMARKS = [
+        [-300, 0], [100, 100], [-312, 145], [278, -203],
+        [-87, 91], [341, 217], [-156, -74], [203, -189],
+        [-367, 112], [94, 261], [-241, -238], [318, 43],
+        [-300, 100]
+    ]
+
+    for idx, landmark in enumerate(LANDMARKS):
+        cx, cy = landmark
+        segs = make_arc_segments(cx, cy, 5, 0, 360, segments=12)
+        landmarks.extend(segs)
+        landmark_groups.append({
+            "id": idx,
+            "center": (cx, cy),
+            "segments": segs,
+        })
+        
     # One intersection at (0,0)
     add_horizontal_corridor(walls, -200, 250, 0, 80, gap_start=-40, gap_end=40)
     add_vertical_corridor(walls, 0, -200, 200, 80, gap_start=-40, gap_end=40)
@@ -119,12 +150,9 @@ def create_map():
     add_line_horizontal(walls, -540, 400, 360)
     add_line_vertical(walls, 400, 360, -360) 
   
+    # for landmark in LANDMARKS:
+    #     add_arc(landmarks, landmark[0], landmark[1],5,0,360)
 
-    for landmark in LANDMARKS:
-        add_arc(landmarks, landmark[0], landmark[1],5,0,360)
-
-    
-    
     add_line_vertical(walls, -280, 230, 280) 
     add_line_vertical(walls, -250, 230, 280)
     add_line_vertical(walls, -210, 230, 280)
@@ -137,8 +165,5 @@ def create_map():
     add_line(walls, 340, 280, 290, 240) #upper right diagonal
     add_line_horizontal(walls, 240, 340, 280) #line connecting the two upper diagonals
     add_line(walls, 200, 240, 40, 200)
-    
-   
 
-    return walls, landmarks
-    
+    return walls, landmarks, landmark_groups

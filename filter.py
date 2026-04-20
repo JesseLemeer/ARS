@@ -139,6 +139,10 @@ def kalman_filter(x,y,theta,sigma_sq_x,sigma_sq_y, sigma_sq_theta, sigma_sq_Rx,s
                   [y_bar + eps_y],
                   [normalize_angle(theta_bar + eps_theta)]])
 
+    # z = np.array([[x_bar],
+    #               [y_bar],
+    #               [normalize_angle(theta_bar)]])
+
     K = sigma_new_bar @ C.T @ np.linalg.inv(C@sigma_new_bar@C.T + Q)
 
     innovation = z - C @ mu_new_bar
