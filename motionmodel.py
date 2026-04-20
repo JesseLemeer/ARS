@@ -69,27 +69,67 @@ def get_robot_corners_at(target_x, target_y, target_theta, length, width):
     return [(target_x + lx*c - ly*s, target_y + lx*s + ly*c) for lx, ly in local_corners]
 
 
+# def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
+#     corners = get_robot_corners_at(rx, ry, rtheta, length, width)
+#     n = len(corners)
+#     edges = [(corners[i], corners[(i + 1) % n]) for i in range(n)]
+
+#     for wall in walls:
+#         (w1x, w1y), (w2x, w2y) = wall
+
+#         # Corner proximity check
+#         for cx, cy in corners:
+#             if get_distance_to_segment(cx, cy, w1x, w1y, w2x, w2y) < margin:
+#                 print("HIT BY CORNER PROXIMITY", wall, "corner", (cx, cy), "dist", get_distance_to_segment(cx, cy, w1x, w1y, w2x, w2y))
+#                 return True, wall, (cx, cy)
+
+#         # Edge crossing check
+#         for (ex1, ey1), (ex2, ey2) in edges:
+#             if segment_intersects_segment(ex1, ey1, ex2, ey2, w1x, w1y, w2x, w2y):
+#                 best_corner = min(
+#                     corners,
+#                     key=lambda c: get_distance_to_segment(c[0], c[1], w1x, w1y, w2x, w2y)
+#                 )
+#                 print("HIT BY EDGE INTERSECTION", wall, "best_corner", best_corner)
+#                 return True, wall, best_corner
+
+#     return False, None, None
 def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
     corners = get_robot_corners_at(rx, ry, rtheta, length, width)
     n = len(corners)
     edges = [(corners[i], corners[(i + 1) % n]) for i in range(n)]
 
+    best_dist = float('inf')
+    best_wall = None
+    best_corner = None
+    collided = False
+
     for wall in walls:
         (w1x, w1y), (w2x, w2y) = wall
 
-        # Corner proximity check
-        for cx, cy in corners:
-            if get_distance_to_segment(cx, cy, w1x, w1y, w2x, w2y) < margin:
-                return True, wall, (cx, cy)
-
-        # Edge crossing check
         for (ex1, ey1), (ex2, ey2) in edges:
             if segment_intersects_segment(ex1, ey1, ex2, ey2, w1x, w1y, w2x, w2y):
-                best_corner = min(
-                    corners,
-                    key=lambda c: get_distance_to_segment(c[0], c[1], w1x, w1y, w2x, w2y)
-                )
-                return True, wall, best_corner
+                dist = 0.0
+                if dist < best_dist:
+                    best_dist = dist
+                    best_wall = wall
+                    # pick closest corner to this wall
+                    best_corner = min(
+                        corners,
+                        key=lambda c: get_distance_to_segment(c[0], c[1], w1x, w1y, w2x, w2y)
+                    )
+                    collided = True
+
+        for cx, cy in corners:
+            dist = get_distance_to_segment(cx, cy, w1x, w1y, w2x, w2y)
+            if dist < margin and dist < best_dist:
+                best_dist = dist
+                best_wall = wall
+                best_corner = (cx, cy)
+                collided = True
+
+    if collided:
+        return True, best_wall, best_corner
 
     return False, None, None
 
@@ -103,17 +143,18 @@ def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width, iterations=6):
         )
         if not collided:
             break
-
         collision_happened = True
         cx, cy = hit_corner
         normal_x, normal_y = wall_normal_for_point(hit_wall, cx, cy)
-
         dot = dx * normal_x + dy * normal_y
         if dot < 0.0:
             dx -= dot * normal_x
             dy -= dot * normal_y
         else:
             # Already sliding parallel or moving away — stop to avoid infinite loop
+            #push = 0.5  # small constant, tune if needed
+            #px += normal_x * push
+            #py += normal_y * push
             dx, dy = 0.0, 0.0
             break
 
