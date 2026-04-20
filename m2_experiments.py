@@ -1,12 +1,15 @@
 import pygame
 import sys
 import math
+import os
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse as MplEllipse
 
 import motionmodel as mm
 import map as mp
 import filter as kf
-from ellipse import draw_covariance_ellipse
+from ellipse import draw_covariance_ellipse, get_ellipse_axes
 
 ORANGE = (255, 127,  0)
 BLACK  = (  0,   0,  0)
@@ -31,6 +34,15 @@ TRAIL_LEN = 400
 
 
 START_X, START_Y, START_THETA = -300.0, 50.0, 0.0
+
+SUMMARY_DIR = "summary_plots"
+
+# Used by summary plots only
+LANDMARK_CENTRES = [
+    [-300, 0], [100, 100], [-312, 145], [278, -203],
+    [-87, 91], [341, 217], [-156, -74], [203, -189],
+    [-367, 112], [94, 261], [-241, -238], [318, 43],
+]
 
 # Default KF noise parameter, given in main.py
 DEFAULT_KF = dict(
@@ -72,7 +84,7 @@ EXPERIMENTS = [
         "flags": {"no_landmarks": True},
     },
     {
-        "name": "3 – Sensor Noise / Bias",
+        "name": "3 – Sensor Noise",
         "desc": [
             "Actual landmark measurements are corrupted.",
             "Distance and bearing include noise/bias.",
@@ -88,7 +100,7 @@ EXPERIMENTS = [
         },
     },
     {
-        "name": "4 – Motion Control Noise / Bias",
+        "name": "4 – Motion Control Noise",
         "desc": [
             "KF prediction uses corrupted controls.",
             "Velocity and angular velocity include noise/bias.",
@@ -149,6 +161,7 @@ def apply_landmark_flags(readings: list, flags: dict) -> list:
         return readings[:cap]
     return readings
 
+# Sensor noise
 def corrupt_landmark_readings(readings: list, flags: dict) -> list:
     dist_bias = flags.get("sensor_dist_bias", 0.0)
     dist_std = flags.get("sensor_dist_std", 0.0)
@@ -169,6 +182,7 @@ def corrupt_landmark_readings(readings: list, flags: dict) -> list:
 
     return corrupted
 
+# Motion noise
 def get_kf_controls(v: float, omega: float, flags: dict):
     v_scale = flags.get("control_v_scale", 1.0)
     omega_scale = flags.get("control_omega_scale", 1.0)
@@ -182,106 +196,12 @@ def get_kf_controls(v: float, omega: float, flags: dict):
 
     return v_kf, omega_kf
 
-# Initiating Pygame
-pygame.init()
-screen  = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("ARS Group 21 – KF Experiments")
-clock   = pygame.time.Clock()
-font_sm = pygame.font.SysFont("monospace", 15)
-font_md = pygame.font.SysFont("monospace", 17, bold=True)
-font_lg = pygame.font.SysFont("monospace", 20, bold=True)
-
-walls, landmarks, landmark_groups = mp.create_map()
-obstacles = walls + landmarks
-
-# Initial experiment state
-current_exp = 0
-(kf_est_x, kf_est_y, kf_est_theta,
- kf_sxx, kf_syy, kf_stt, kf_sxy,
- true_trail, kf_trail) = reset_state(current_exp)
-
-# running error accumulator
-error_history = []
-
-def draw_hud(surface, exp_idx, visible_count,
-             true_pos, kf_pos, kf_sigma, error_hist):
-    panel_w = 300
-    panel_x = SCREEN_WIDTH - panel_w
-    # Semi-transparent panel background
-    panel_surf = pygame.Surface((panel_w, SCREEN_HEIGHT), pygame.SRCALPHA)
-    panel_surf.fill((10, 10, 25, 210))
-    surface.blit(panel_surf, (panel_x, 0))
-
-    # Separator line
-    pygame.draw.line(surface, (80, 80, 120), (panel_x, 0), (panel_x, SCREEN_HEIGHT), 2)
-
-    y_off = 12
-    row   = 20
-
-    def txt(text, color=HUD_COLOR, bold=False, x_off=8):
-        f = font_md if bold else font_sm
-        s = f.render(text, True, color)
-        surface.blit(s, (panel_x + x_off, y_off))
-
-    # Experiment name
-    txt("EXPERIMENT", color=(150, 200, 255), bold=True); y_off += row + 2
-    for line in EXPERIMENTS[exp_idx]["name"].split("–"):
-        txt(line.strip(), color=WARN_COLOR, bold=True); y_off += row
-    y_off += 4
-
-    # Description
-    txt("About:", color=(160, 160, 200)); y_off += row
-    for line in EXPERIMENTS[exp_idx]["desc"]:
-        # word-wrap at 36 chars
-        while len(line) > 0:
-            txt(line[:36], color=(200, 200, 200)); y_off += row - 3
-            line = line[36:]
-    y_off += 6
-
-    # Live status
-    pygame.draw.line(surface, (70, 70, 100),
-                     (panel_x + 4, y_off), (SCREEN_WIDTH - 4, y_off), 1)
-    y_off += 6
-    txt("LIVE STATS", color=(150, 200, 255), bold=True); y_off += row
-
-    err = math.hypot(true_pos[0] - kf_pos[0], true_pos[1] - kf_pos[1])
-    mean_err = sum(error_hist[-200:]) / max(len(error_hist[-200:]), 1)
-
-    stats = [
-        f"Landmarks vis : {visible_count}",
-        f"Position err  : {err:.1f}",
-        f"Mean err(200) : {mean_err:.1f}",
-        f"σx²           : {kf_sigma[0]:.2f}",
-        f"σy²           : {kf_sigma[1]:.2f}",
-        f"Trace σ(x+y)  : {kf_sigma[0]+kf_sigma[1]:.2f}",
-    ]
-    for s in stats:
-        txt(s, color=HUD_COLOR); y_off += row
-    y_off += 8
-
-    # Flags
-    flags = EXPERIMENTS[exp_idx]["flags"]
-    if flags.get("no_landmarks"):
-        txt("⚠ No landmarks!", color=(255, 80, 80), bold=True); y_off += row
-    if "max_landmarks" in flags:
-        txt(f"⚠ Max {flags['max_landmarks']} landmarks", color=WARN_COLOR, bold=True)
-        y_off += row
-
-    # Controls reminder
-    pygame.draw.line(surface, (70, 70, 100),
-                     (panel_x + 4, y_off), (SCREEN_WIDTH - 4, y_off), 1)
-    y_off += 6
-    txt("CONTROLS", color=(150, 200, 255), bold=True); y_off += row
-    controls = [
-        "Arrows : drive",
-        "E      : next experiment",
-        "1-5    : jump to exp",
-        "R      : reset state",
-        "Q      : quit",
-    ]
-    for c in controls:
-        txt(c, color=(160, 160, 180)); y_off += row
-
+def draw_solid_trail(surface, trail, color, width=2):
+    """Draw a solid trajectory trail."""
+    if len(trail) < 2:
+        return
+    pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT) for px, py in trail]
+    pygame.draw.lines(surface, color, False, pts, width)
 
 def draw_dotted_trail(surface, trail, color, gap=4, width=2):
     """Draw a trail as dotted/dashed line (every other *gap* segments drawn)."""
@@ -292,65 +212,365 @@ def draw_dotted_trail(surface, trail, color, gap=4, width=2):
         j = min(i + gap, len(pts) - 1)
         pygame.draw.line(surface, color, pts[i], pts[j], width)
 
+def draw_hud(surface, exp_idx, visible_count,
+             true_pos, kf_pos, kf_sigma, error_hist,
+             font_sm, font_md):
+    panel_w = 300
+    panel_x = SCREEN_WIDTH - panel_w
 
-def draw_solid_trail(surface, trail, color, width=2):
-    """Draw a solid trajectory trail."""
-    if len(trail) < 2:
-        return
-    pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT) for px, py in trail]
-    pygame.draw.lines(surface, color, False, pts, width)
+    panel_surf = pygame.Surface((panel_w, SCREEN_HEIGHT), pygame.SRCALPHA)
+    panel_surf.fill((10, 10, 25, 210))
+    surface.blit(panel_surf, (panel_x, 0))
+    pygame.draw.line(surface, (80, 80, 120), (panel_x, 0), (panel_x, SCREEN_HEIGHT), 2)
 
+    y_off = [12]
+    row = 20
+
+    def txt(text, color=HUD_COLOR, bold=False):
+        font = font_md if bold else font_sm
+        surface.blit(font.render(text, True, color), (panel_x + 8, y_off[0]))
+        y_off[0] += row
+
+    def sep():
+        pygame.draw.line(surface, (70, 70, 100),
+                         (panel_x + 4, y_off[0]), (SCREEN_WIDTH - 4, y_off[0]), 1)
+        y_off[0] += 6
+
+    txt("EXPERIMENT", color=(150, 200, 255), bold=True)
+    y_off[0] += 2
+    for part in EXPERIMENTS[exp_idx]["name"].split("–"):
+        txt(part.strip(), color=WARN_COLOR, bold=True)
+    y_off[0] += 4
+
+    txt("About:", color=(160, 160, 200))
+    for line in EXPERIMENTS[exp_idx]["desc"]:
+        while line:
+            txt(line[:36], color=(200, 200, 200))
+            y_off[0] -= 3
+            line = line[36:]
+    y_off[0] += 8
+
+    sep()
+    txt("LIVE STATS", color=(150, 200, 255), bold=True)
+
+    err = math.hypot(true_pos[0] - kf_pos[0], true_pos[1] - kf_pos[1])
+    mean_err = sum(error_hist[-200:]) / max(len(error_hist[-200:]), 1)
+
+    stats = [
+        f"Landmarks vis : {visible_count}",
+        f"Position err  : {err:.1f}",
+        f"Mean err(200) : {mean_err:.1f}",
+        f"σx²           : {kf_sigma[0]:.2f}",
+        f"σy²           : {kf_sigma[1]:.2f}",
+        f"Trace σ(x+y)  : {kf_sigma[0] + kf_sigma[1]:.2f}",
+    ]
+    for s in stats:
+        txt(s)
+
+    y_off[0] += 4
+    flags = EXPERIMENTS[exp_idx]["flags"]
+    if flags.get("no_landmarks"):
+        txt("⚠ No landmarks!", color=(255, 80, 80), bold=True)
+    if "max_landmarks" in flags:
+        txt(f"⚠ Max {flags['max_landmarks']} lm", color=WARN_COLOR, bold=True)
+
+    sep()
+    txt("CONTROLS", color=(150, 200, 255), bold=True)
+    for c in [
+        "Arrows : drive",
+        "E      : next experiment",
+        "1-5    : jump to exp",
+        "R      : reset state",
+        "P      : save summary plots",
+        "Q      : quit + save plots",
+    ]:
+        txt(c, color=(160, 160, 180))
+
+# Summary Simulation
+_MOTION_SEQ = [
+    (80,  0.0, 120),
+    (70,  5.0,  90),
+    (80,  0.0, 120),
+    (70, -5.0,  90),
+    (80,  0.0, 120),
+    (70,  5.0,  90),
+    (60,  0.0, 100),
+]
+_TOTAL_STEPS = sum(n for _, _, n in _MOTION_SEQ)
+_DT = 0.05
+
+def run_offline_experiment(exp_index: int, walls, landmarks, seed: int = 123):
+    """
+    Runs the SAME experiment logic as live mode, but headless and on a fixed motion path.
+    """
+    np.random.seed(seed + exp_index)
+
+    saved_state = (mm.x, mm.y, mm.theta, mm.v, mm.omega, mm.dt)
+    mm.x, mm.y, mm.theta = START_X, START_Y, START_THETA
+    mm.v = mm.omega = mm.dt = 0.0
+
+    obstacles = walls + landmarks
+    flags = EXPERIMENTS[exp_index]["flags"]
+    p = build_kf_params(exp_index)
+
+    kf_x, kf_y, kf_theta = START_X, START_Y, START_THETA
+    sx, sy, st = p["sigma_sq_x"], p["sigma_sq_y"], p["sigma_sq_theta"]
+
+    result = {
+        "true_traj": [],
+        "kf_traj": [],
+        "errors": [],
+        "covs": [],
+        "lm_counts": [],
+        "name": EXPERIMENTS[exp_index]["name"],
+    }
+
+    for cmd_v, cmd_omega, n_steps in _MOTION_SEQ:
+        mm.v = cmd_v
+        mm.omega = cmd_omega
+
+        for _ in range(n_steps):
+            mm.dt = _DT
+            mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+
+            all_landmark_readings = mm.get_sensor_readings(landmarks)
+            raw_visible = [r for r in all_landmark_readings if r["distance"] < mm.SENSOR_MAX_RANGE]
+
+            visible = apply_landmark_flags(raw_visible, flags)
+            visible = corrupt_landmark_readings(visible, flags)
+
+            v_kf, omega_kf = get_kf_controls(mm.v, mm.omega, flags)
+
+            mu, sigma = kf.kalman_filter(
+                kf_x, kf_y, kf_theta,
+                sx, sy, st,
+                p["sigma_sq_Rx"], p["sigma_sq_Ry"], p["sigma_sq_Rtheta"],
+                p["sigma_sq_Qx"], p["sigma_sq_Qy"], p["sigma_sq_Qtheta"],
+                v_kf, omega_kf, _DT,
+                visible,
+            )
+
+            kf_x, kf_y, kf_theta = float(mu[0, 0]), float(mu[1, 0]), float(mu[2, 0])
+            sx = float(sigma[0, 0])
+            sy = float(sigma[1, 1])
+            st = float(sigma[2, 2])
+            sxy = float(sigma[0, 1])
+
+            result["true_traj"].append((mm.x, mm.y))
+            result["kf_traj"].append((kf_x, kf_y))
+            result["errors"].append(math.hypot(mm.x - kf_x, mm.y - kf_y))
+            result["covs"].append((sx, sy, sxy))
+            result["lm_counts"].append(len(visible))
+
+    mm.x, mm.y, mm.theta, mm.v, mm.omega, mm.dt = saved_state
+    return result
+
+def ensure_summary_dir():
+    os.makedirs(SUMMARY_DIR, exist_ok=True)
+
+def save_trajectory_plot(result):
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    tx = [p[0] for p in result["true_traj"]]
+    ty = [p[1] for p in result["true_traj"]]
+    kx = [p[0] for p in result["kf_traj"]]
+    ky = [p[1] for p in result["kf_traj"]]
+
+    ax.plot(tx, ty, lw=1.8, label="True path")
+    ax.plot(kx, ky, lw=1.5, ls="--", label="KF estimate")
+    ax.plot(tx[0], ty[0], "go", ms=7, label="Start")
+    ax.plot(tx[-1], ty[-1], "rs", ms=7, label="End")
+
+    lx = [c[0] for c in LANDMARK_CENTRES]
+    ly = [c[1] for c in LANDMARK_CENTRES]
+    ax.scatter(lx, ly, c="black", s=22, marker="^", label="Landmarks", zorder=5)
+
+    ellipse_every = 55
+    for i in range(0, len(result["covs"]), ellipse_every):
+        cx, cy = result["kf_traj"][i]
+        sx, sy, sxy = result["covs"][i]
+        w, h, ang = get_ellipse_axes(sx, sy, sxy, n_std=2)
+        ax.add_patch(MplEllipse(
+            (cx, cy), width=w, height=h, angle=ang,
+            fill=False, lw=1.0, alpha=0.7
+        ))
+
+    ax.set_title(f"Trajectory – {result['name']}")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+
+    out_path = os.path.join(SUMMARY_DIR, f"{result['name']}_trajectory.png")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[Saved] {out_path}")
+
+def save_error_plot(all_results):
+    fig, ax = plt.subplots(figsize=(10, 5))
+    steps = list(range(_TOTAL_STEPS))
+
+    for result in all_results:
+        ax.plot(steps, result["errors"], lw=1.5, label=result["name"])
+
+    ax.set_title("Position Error Over Time")
+    ax.set_xlabel("Simulation step")
+    ax.set_ylabel("Euclidean position error")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.set_xlim(0, _TOTAL_STEPS)
+
+    out_path = os.path.join(SUMMARY_DIR, "all_experiments_error.png")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[Saved] {out_path}")
+
+def save_covariance_plot(all_results):
+    fig, ax = plt.subplots(figsize=(10, 5))
+    steps = list(range(_TOTAL_STEPS))
+
+    for result in all_results:
+        trace = [sx + sy for sx, sy, _ in result["covs"]]
+        ax.plot(steps, trace, lw=1.5, label=result["name"])
+
+    ax.set_title("KF Covariance Trace Over Time")
+    ax.set_xlabel("Simulation step")
+    ax.set_ylabel("σx² + σy²")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.set_xlim(0, _TOTAL_STEPS)
+
+    out_path = os.path.join(SUMMARY_DIR, "all_experiments_covariance_trace.png")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[Saved] {out_path}")
+
+def save_landmark_plot(all_results):
+    fig, ax = plt.subplots(figsize=(10, 5))
+    steps = list(range(_TOTAL_STEPS))
+
+    max_y = 0
+    for result in all_results:
+        ax.plot(steps, result["lm_counts"], lw=1.5, label=result["name"])
+        if result["lm_counts"]:
+            max_y = max(max_y, max(result["lm_counts"]))
+
+    ax.set_title("Visible Landmarks Over Time")
+    ax.set_xlabel("Simulation step")
+    ax.set_ylabel("Visible landmarks")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.set_xlim(0, _TOTAL_STEPS)
+    ax.set_ylim(-0.2, max_y + 0.5)
+
+    out_path = os.path.join(SUMMARY_DIR, "all_experiments_landmark_visibility.png")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[Saved] {out_path}")
+
+def run_and_save_all_summaries(walls, landmarks):
+    ensure_summary_dir()
+    print("\n[Summary] Running 5 offline experiments with same logic as live mode...")
+
+    all_results = []
+    for exp_index in range(len(EXPERIMENTS)):
+        print(f"  Running {EXPERIMENTS[exp_index]['name']}")
+        result = run_offline_experiment(exp_index, walls, landmarks)
+        all_results.append(result)
+        save_trajectory_plot(result)
+
+    save_error_plot(all_results)
+    save_covariance_plot(all_results)
+    save_landmark_plot(all_results)
+
+    print("\n" + "=" * 75)
+    print("SUMMARY STATISTICS")
+    print("=" * 75)
+    print(f"{'Experiment':<42} {'Mean err':>10} {'Max err':>10} {'Final err':>10}")
+    print("-" * 75)
+    for result in all_results:
+        errs = result["errors"]
+        print(f"{result['name']:<42} {np.mean(errs):>10.2f} {np.max(errs):>10.2f} {errs[-1]:>10.2f}")
+    print("=" * 75)
+
+# Initiating Pygame
+pygame.init()
+screen  = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("ARS Group 21 – KF Experiments")
+clock   = pygame.time.Clock()
+font_sm = pygame.font.SysFont("monospace", 15)
+font_md = pygame.font.SysFont("monospace", 17, bold=True)
+# font_lg = pygame.font.SysFont("monospace", 20, bold=True)
+
+_map_result = mp.create_map()
+if len(_map_result) == 3:
+    walls, landmarks, _ = _map_result
+else:
+    walls, landmarks = _map_result
+obstacles = walls + landmarks
+
+# Initial experiment state
+current_exp = 0
+(kf_est_x, kf_est_y, kf_est_theta,
+ kf_sxx, kf_syy, kf_stt, kf_sxy,
+ true_trail, kf_trail) = reset_state(current_exp)
+
+# running error accumulator
+error_history = []
+save_plots_now = False
 
 # Main Loop
 running = True
 while running:
-
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
         elif event.type == pygame.KEYDOWN:
-            # Q = quit
             if event.key == pygame.K_q:
                 running = False
 
-            # R = reset (same experiment)
             elif event.key == pygame.K_r:
-                (kf_est_x, kf_est_y, kf_est_theta,
-                 kf_sxx, kf_syy, kf_stt, kf_sxy,
-                 true_trail, kf_trail) = reset_state(current_exp)
+                (
+                    kf_est_x, kf_est_y, kf_est_theta,
+                    kf_sxx, kf_syy, kf_stt, kf_sxy,
+                    true_trail, kf_trail
+                ) = reset_state(current_exp)
                 error_history.clear()
-                print(f"[Reset] Experiment {current_exp+1}: {EXPERIMENTS[current_exp]['name']}")
+                print(f"[Reset] Exp {current_exp + 1}: {EXPERIMENTS[current_exp]['name']}")
 
-            # E = next experiment
             elif event.key == pygame.K_e:
                 current_exp = (current_exp + 1) % len(EXPERIMENTS)
-                (kf_est_x, kf_est_y, kf_est_theta,
-                 kf_sxx, kf_syy, kf_stt, kf_sxy,
-                 true_trail, kf_trail) = reset_state(current_exp)
+                (
+                    kf_est_x, kf_est_y, kf_est_theta,
+                    kf_sxx, kf_syy, kf_stt, kf_sxy,
+                    true_trail, kf_trail
+                ) = reset_state(current_exp)
                 error_history.clear()
-                print(f"[Switch] → Experiment {current_exp+1}: {EXPERIMENTS[current_exp]['name']}")
+                print(f"[Switch] Exp {current_exp + 1}: {EXPERIMENTS[current_exp]['name']}")
 
-            # 1-5 = jump to specific experiment
-            elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3,
-                               pygame.K_4, pygame.K_5):
-                idx = event.key - pygame.K_1          # 0-based
+            elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5):
+                idx = event.key - pygame.K_1
                 if idx < len(EXPERIMENTS):
                     current_exp = idx
-                    (kf_est_x, kf_est_y, kf_est_theta,
-                     kf_sxx, kf_syy, kf_stt, kf_sxy,
-                     true_trail, kf_trail) = reset_state(current_exp)
+                    (
+                        kf_est_x, kf_est_y, kf_est_theta,
+                        kf_sxx, kf_syy, kf_stt, kf_sxy,
+                        true_trail, kf_trail
+                    ) = reset_state(current_exp)
                     error_history.clear()
-                    print(f"[Jump]   → Experiment {current_exp+1}: {EXPERIMENTS[current_exp]['name']}")
+                    print(f"[Jump] Exp {current_exp + 1}: {EXPERIMENTS[current_exp]['name']}")
 
+            elif event.key == pygame.K_p:
+                save_plots_now = True
+                
     # Robot movement
     keys = pygame.key.get_pressed()
-    mm.omega = OMEGA  if keys[pygame.K_LEFT]  else \
-              -OMEGA  if keys[pygame.K_RIGHT] else 0.0
-    mm.v     = VELOCITY  if keys[pygame.K_UP]   else \
-              -VELOCITY  if keys[pygame.K_DOWN]  else 0.0
+    mm.omega = OMEGA if keys[pygame.K_LEFT] else -OMEGA if keys[pygame.K_RIGHT] else 0.0
+    mm.v = VELOCITY if keys[pygame.K_UP] else -VELOCITY if keys[pygame.K_DOWN] else 0.0
 
-    mm.dt      = clock.tick(60) / 1000.0
+    mm.dt = clock.tick(60) / 1000.0
     collisions = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
 
     # Sensor readings
@@ -491,9 +711,16 @@ while running:
         (kf_est_x, kf_est_y),
         (kf_sxx, kf_syy, kf_stt),
         error_history,
+        font_sm,
+        font_md
     )
 
     pygame.display.flip()
 
+    if save_plots_now:
+        save_plots_now = False
+        run_and_save_all_summaries(walls, landmarks)
+
 pygame.quit()
+run_and_save_all_summaries(walls, landmarks)
 sys.exit()
