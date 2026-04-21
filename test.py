@@ -24,6 +24,7 @@ WARN_COLOR = (255, 200,  50)
 
 OMEGA      = 5.0
 VELOCITY   = 100.0
+FIXED_DT = 1.0 / 60.0 
 CAR_LENGTH = 24
 CAR_WIDTH  = 14
 
@@ -624,6 +625,7 @@ if MODE == "REPLAY":
     
 # Main Loop
 running = True
+collisions = False
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -681,22 +683,22 @@ while running:
             mm.dt = dt
 
             REPLAY_INDEX += 1
+        clock.tick(60)
     else:
         # normal live driving
         keys = pygame.key.get_pressed()
         mm.omega = OMEGA if keys[pygame.K_LEFT] else -OMEGA if keys[pygame.K_RIGHT] else 0.0
         mm.v = VELOCITY if keys[pygame.K_UP] else -VELOCITY if keys[pygame.K_DOWN] else 0.0
 
-        mm.dt = clock.tick(60) / 1000.0
-        #mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        clock.tick(60)
+        mm.dt = FIXED_DT
+        collisions = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
 
         RECORD_PATH.append((mm.x, mm.y, mm.theta, mm.v, mm.omega, mm.dt))
-
     
-
-    mm.dt = clock.tick(60) / 1000.0
-    collisions = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
-
+    #if MODE == "REPLAY":
+        #clock.tick(60)  # just FPS, do NOT touch dt
+   
     # Sensor readings
     all_landmark_readings = mm.get_sensor_readings(landmarks)
     raw_visible = [r for r in all_landmark_readings
