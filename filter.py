@@ -8,16 +8,16 @@ def normalize_angle(angle_rad):
 
 
 def triangulation(measurement_a, measurement_b):
-    x1, y1 = measurement_a["hit_point"]
-    x2, y2 = measurement_b["hit_point"]
-    r1 = measurement_a["distance"]
-    r2 = measurement_b["distance"]
-    phi1 = math.radians(measurement_a["angle_deg"])
-    phi2 = math.radians(measurement_b["angle_deg"])
+    xa, ya = measurement_a["hit_point"]
+    xb, yb = measurement_b["hit_point"]
+    ra = measurement_a["distance"]
+    rb = measurement_b["distance"]
+    phia = math.radians(measurement_a["angle_deg"])
+    phib = math.radians(measurement_b["angle_deg"])
 
     #Distance between the two landmarks
-    dx = x2 - x1
-    dy = y2 - y1
+    dx = xb - xa
+    dy = yb - ya
     #Euclidean distance between them
     d = math.sqrt(dx**2 + dy**2)
 
@@ -28,26 +28,27 @@ def triangulation(measurement_a, measurement_b):
     if d <= 10.0:
         return None
     #Check for no intersection or one circle inside the other
-    if d > r1 + r2 or d < abs(r1 - r2):
+    if d > ra + rb or d < abs(ra - rb):
         return None
     
-    #Distance from x1 to the perpendicular crossing point
-    projection = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
+    #Distance from hit point a to radical axis  (line through intersection points)
+    projection = (ra ** 2 - rb ** 2 + d ** 2) / (2 * d)
     
-    #Height from the crossing point to the intersection points
-    h_sq = r1 ** 2 - projection ** 2
+    #Intersection of line through hit point a and b with radical axis
+    cross_x = xa + projection * dx / d
+    cross_y = ya + projection * dy / d
+    
+    #Height from the crossing point on radical axis to the intersection points
+    h_sq = ra ** 2 - projection ** 2
     
     #Non-negative check and floating point guard
     if h_sq < 0:
-        if h_sq > -1e-6:  # Allow for small numerical errors
+        if h_sq > -1e-6:
             h_sq = 0
         else:   
             return None
     
     h = math.sqrt(h_sq)
-   
-    cross_x = x1 + projection * dx / d
-    cross_y = y1 + projection * dy / d
 
     offset_x = -dy * h / d
     offset_y = dx * h / d
@@ -63,16 +64,16 @@ def triangulation(measurement_a, measurement_b):
 
     #Keep the candidate with the smallest angle error
     for candidate_x, candidate_y in candidates:
-        global_angle_1 = math.atan2(y1 - candidate_y, x1 - candidate_x)
-        global_angle_2 = math.atan2(y2 - candidate_y, x2 - candidate_x)
-        
-        theta_1 = normalize_angle(global_angle_1 - phi1)
-        theta_2 = normalize_angle(global_angle_2 - phi2)
-        error = abs(normalize_angle(theta_1 - theta_2))
+        global_angle_a = math.atan2(ya - candidate_y, xa - candidate_x)
+        global_angle_b = math.atan2(yb - candidate_y, xb - candidate_x)
+
+        theta_a = normalize_angle(global_angle_a - phia)
+        theta_b = normalize_angle(global_angle_b - phib)
+        error = abs(normalize_angle(theta_a - theta_b))
 
         if error < best_error:
             best_error = error
-            best_pose = (candidate_x, candidate_y, normalize_angle((theta_1 + theta_2) / 2.0))
+            best_pose = (candidate_x, candidate_y, normalize_angle((theta_a + theta_b) / 2.0))
 
     return best_pose
 
@@ -138,10 +139,6 @@ def kalman_filter(x,y,theta,sigma_sq_x,sigma_sq_y, sigma_sq_theta, sigma_sq_Rx,s
     z = np.array([[x_bar + eps_x],
                   [y_bar + eps_y],
                   [normalize_angle(theta_bar + eps_theta)]])
-
-    # z = np.array([[x_bar],
-    #               [y_bar],
-    #               [normalize_angle(theta_bar)]])
 
     K = sigma_new_bar @ C.T @ np.linalg.inv(C@sigma_new_bar@C.T + Q)
 
