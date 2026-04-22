@@ -267,10 +267,10 @@ def corrupt_landmark_readings(readings: list, flags: dict) -> list:
         new_r = dict(r)
 
         new_distance = r["distance"] + dist_bias + np.random.normal(0.0, dist_std)
-        new_angle_deg = r["angle_deg"] + angle_bias_deg + np.random.normal(0.0, angle_std_deg)
-
+        new_bearing_rad = r["bearing_rad"] + math.radians(angle_bias_deg) + np.random.normal(0.0, math.radians(angle_std_deg))
+        new_r["bearing_rad"] = new_bearing_rad
         new_r["distance"] = max(0.0, new_distance)
-        new_r["angle_deg"] = new_angle_deg
+        
 
         corrupted.append(new_r)
 
@@ -299,10 +299,10 @@ def deduplicate_landmark_readings(readings: list) -> list:
 
     deduplicated = []
     for reading in sorted_readings:
-        hx, hy = reading["hit_point"]
+        hx, hy = reading["landmark_center"]
         already_seen = False
         for accepted in deduplicated:
-            ax, ay = accepted["hit_point"]
+            ax, ay = accepted["landmark_center"]
             # Two hit points within diameter (10) = same landmark
             if math.hypot(hx - ax, hy - ay) < 10.0:
                 already_seen = True
@@ -417,7 +417,7 @@ _TOTAL_STEPS = sum(n for _, _, n in _MOTION_SEQ)
 _DT = 0.05
 '''
 
-def run_offline_experiment(exp_index: int, walls, landmarks, seed: int = 123):
+def run_offline_experiment(exp_index: int, walls, landmarks, landmark_groups, seed: int = 123):
     """
     Runs the SAME experiment logic as live mode, but headless and on a fixed motion path.
     """
@@ -450,10 +450,10 @@ def run_offline_experiment(exp_index: int, walls, landmarks, seed: int = 123):
         mm.v, mm.omega, mm.dt = v, omega, dt
 
         #sensor simulation from replayed state
-        all_landmark_readings = mm.get_sensor_readings(landmarks)
+        all_landmark_readings = mm.get_landmark_measurements(landmark_groups)
         raw_visible = [
             r for r in all_landmark_readings
-            if r["distance"] < mm.SENSOR_MAX_RANGE
+            if r["distance"] < mm.LANDMARK_SENSOR_RANGE
         ]
 
         visible = apply_landmark_flags(raw_visible, flags)
@@ -606,7 +606,7 @@ def run_and_save_all_summaries(walls, landmarks):
     for exp_index in range(len(EXPERIMENTS)):
         print(f"  Running {EXPERIMENTS[exp_index]['name']}")
 
-        result = run_offline_experiment(exp_index, walls, landmarks)
+        result = run_offline_experiment(exp_index, walls, landmarks, landmark_groups)
         all_results.append(result)
 
         save_trajectory_plot(result)
@@ -638,7 +638,7 @@ font_md = pygame.font.SysFont("monospace", 17, bold=True)
 
 _map_result = mp.create_map()
 if len(_map_result) == 3:
-    walls, landmarks, _ = _map_result
+    walls, landmarks, landmark_groups = _map_result
 else:
     walls, landmarks = _map_result
 obstacles = walls + landmarks
@@ -736,9 +736,9 @@ while running:
     
    
     # Sensor readings
-    all_landmark_readings = mm.get_sensor_readings(landmarks)
+    all_landmark_readings = mm.get_landmark_measurements(landmark_groups)
     raw_visible = [r for r in all_landmark_readings
-                   if r["distance"] < mm.SENSOR_MAX_RANGE]
+                   if r["distance"] < mm.LANDMARK_SENSOR_RANGE]
 
     # Apply experiment filter (no_landmarks / max_landmarks)
     flags = EXPERIMENTS[current_exp]["flags"]
@@ -791,12 +791,12 @@ while running:
     screen_x, screen_y = mm.world_to_screen(mm.x, mm.y, SCREEN_WIDTH, SCREEN_HEIGHT)
 
     for reading in all_landmark_readings:
-        hit_x, hit_y   = reading["hit_point"]
+        hit_x, hit_y   = reading["landmark_center"]
         hit_sx, hit_sy = mm.world_to_screen(hit_x, hit_y, SCREEN_WIDTH, SCREEN_HEIGHT)
         in_range       = reading["distance"] < mm.SENSOR_MAX_RANGE
         # Check whether this reading is passed to KF (respects experiment flags)
         is_used = in_range and any(
-            r["angle_deg"] == reading["angle_deg"] for r in visible
+            r["landmark_id"] == reading["landmark_id"] for r in visible
         )
 
         if in_range:
