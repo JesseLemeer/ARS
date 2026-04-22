@@ -21,11 +21,8 @@ def triangulation(measurement_a, measurement_b):
     #Euclidean distance between them
     d = math.sqrt(dx**2 + dy**2)
 
-    #Check for same landmark, can happen when the robot is very close to a landmark
-    #If both measurements hit the same landmark we cannot use this
-    #Radius of a landmark is 5, so distance between is max 10
-    #We assume there is no two landmarks closer than 10 to each other
-    if d <= 10.0:
+    #Check for same landmarks
+    if d == 0:
         return None
     #Check for no intersection or one circle inside the other
     if d > ra + rb or d < abs(ra - rb):
