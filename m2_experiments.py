@@ -11,6 +11,8 @@ import map as mp
 import filter as kf
 from ellipse import draw_covariance_ellipse, get_ellipse_axes
 
+
+# Parameters
 ORANGE = (255, 127,  0)
 BLACK  = (  0,   0,  0)
 BLUE   = ( 70, 130, 180)
@@ -31,7 +33,6 @@ SCREEN_WIDTH,  SCREEN_HEIGHT  = 900, 680
 WORLD_WIDTH,   WORLD_HEIGHT   = 1600, 1600
 
 TRAIL_LEN = 400
-
 
 START_X, START_Y, START_THETA = -300.0, 50.0, 0.0
 
