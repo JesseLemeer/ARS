@@ -8,12 +8,12 @@ def normalize_angle(angle_rad):
 
 
 def triangulation(measurement_a, measurement_b):
-    xa, ya = measurement_a["hit_point"]
-    xb, yb = measurement_b["hit_point"]
+    xa, ya = measurement_a["landmark_center"]
+    xb, yb = measurement_b["landmark_center"]
     ra = measurement_a["distance"]
     rb = measurement_b["distance"]
-    phia = math.radians(measurement_a["angle_deg"])
-    phib = math.radians(measurement_b["angle_deg"])
+    phia = measurement_a["bearing_rad"]
+    phib = measurement_b["bearing_rad"]
 
     #Distance between the two landmarks
     dx = xb - xa

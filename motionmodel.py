@@ -14,6 +14,11 @@ dt = 0.0
 
 SENSOR_ANGLES_DEG = [i * 10 for i in range(36)]
 SENSOR_MAX_RANGE = 100.0
+LANDMARK_SENSOR_RANGE = 150.0
+
+
+def normalize_angle(angle_rad):
+    return (angle_rad + math.pi) % (2 * math.pi) - math.pi
 
 def world_to_screen(wx, wy, screen_width, screen_height):
     screen_x = wx - x + screen_width / 2
@@ -296,6 +301,35 @@ def get_landmark_readings_with_occlusion(landmark_groups, walls, sensor_angles_d
 
         if best_reading is not None:
             readings.append(best_reading)
+
+    return readings
+
+
+def get_landmark_measurements(landmark_groups, max_range=LANDMARK_SENSOR_RANGE):
+    readings = []
+
+    #Check for each landmark if it is within sensor range
+    for landmark in landmark_groups:
+        landmark_id = landmark["id"]
+        landmark_x, landmark_y = landmark["center"]
+
+        delta_x = landmark_x - x
+        delta_y = landmark_y - y
+        distance = math.sqrt(delta_x**2 + delta_y**2)
+        
+        #Exclude landmarks that are out of range
+        if distance > max_range:
+            continue
+
+        global_bearing = math.atan2(delta_y, delta_x)
+        relative_bearing = normalize_angle(global_bearing - theta)
+
+        readings.append({
+            "landmark_id": landmark_id,
+            "landmark_center": (landmark_x, landmark_y),
+            "distance": distance,
+            "bearing_rad": relative_bearing,
+        })
 
     return readings
 

@@ -72,10 +72,8 @@ while running:
     mm.dt      = clock.tick(60) / 1000
     collisions = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
 
-    collision_readings = mm.get_sensor_readings(obstacles)
-    landmark_readings  = mm.get_sensor_readings(landmarks)
+    landmark_measurements = mm.get_landmark_measurements(landmark_groups)
 
-    
     true_trail.append((mm.x, mm.y))
     if len(true_trail) > TRAIL_LEN:
         true_trail.pop(0)
@@ -89,6 +87,9 @@ while running:
         pygame.draw.line(screen, BLACK, s, e, 3)
 
     screen_x, screen_y = mm.world_to_screen(mm.x, mm.y, SCREEN_WIDTH, SCREEN_HEIGHT)
+    
+    #Draw landmark sensor range (light green circle)
+    pygame.draw.circle(screen, (190, 235, 190), (screen_x, screen_y), int(mm.LANDMARK_SENSOR_RANGE), 1)
 
     # Draw trajectory (solid blue line)
     if len(true_trail) >= 2:
@@ -103,28 +104,26 @@ while running:
         for i in range(0, len(kf_pts) - 1, 4):
             pygame.draw.line(screen, ORANGE, kf_pts[i], kf_pts[min(i+2, len(kf_pts)-1)], 2)
 
-    # Landmark sensor rays
-    landmark_measurements = []
-    for reading in landmark_readings:
-        hit_x, hit_y  = reading["hit_point"]
-        hit_sx, hit_sy = mm.world_to_screen(hit_x, hit_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+    #Omnidirectional landmark detections
+    for reading in landmark_measurements:
+        landmark_x, landmark_y = reading["landmark_center"]
+        landmark_sx, landmark_sy = mm.world_to_screen(landmark_x, landmark_y, SCREEN_WIDTH, SCREEN_HEIGHT)
 
-        if reading["distance"] < mm.SENSOR_MAX_RANGE:
-            pygame.draw.line(screen, GREEN, (screen_x, screen_y), (hit_sx, hit_sy), 1)
-            pygame.draw.circle(screen, GREEN, (hit_sx, hit_sy), 3)
-            landmark_measurements.append(reading)
-        else:
-            pygame.draw.line(screen, BLUE, (screen_x, screen_y), (hit_sx, hit_sy), 1)
-            pygame.draw.circle(screen, RED, (hit_sx, hit_sy), 3)
+        #Draw green line from robot to landmark and green circle at landmark position if detected
+        pygame.draw.line(screen, GREEN, (screen_x, screen_y), (landmark_sx, landmark_sy), 1)
+        pygame.draw.circle(screen, GREEN, (landmark_sx, landmark_sy), 6, 3)
 
-        sensor_angle = mm.theta + math.radians(reading["angle_deg"])
-        dist = reading["distance"]
-        lx = mm.x + 0.6 * dist * math.cos(sensor_angle)
-        ly = mm.y + 0.6 * dist * math.sin(sensor_angle)
-        lx += -math.sin(sensor_angle) * 10
-        ly +=  math.cos(sensor_angle) * 10
-        lsx, lsy = mm.world_to_screen(lx, ly, SCREEN_WIDTH, SCREEN_HEIGHT)
-        screen.blit(font.render(f"{dist:.1f}", True, BLACK), (lsx, lsy))
+        #Position label slightly to the right and above the landmark
+        label_x = landmark_x + 10
+        label_y = landmark_y + 10
+        label_sx, label_sy = mm.world_to_screen(label_x, label_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+        label = (
+            f"L{reading['landmark_id']} "
+            f"({landmark_x:.0f},{landmark_y:.0f}) "
+            f"r={reading['distance']:.1f} "
+            f"φ={math.degrees(reading['bearing_rad']):.1f}°"
+        )
+        screen.blit(font.render(label, True, BLACK), (label_sx, label_sy))
 
     # Kalman Filter step 
     kf_mu, kf_sigma_mat = kf.kalman_filter(
