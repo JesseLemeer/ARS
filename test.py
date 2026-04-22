@@ -11,6 +11,8 @@ import map as mp
 import filter as kf
 from ellipse import draw_covariance_ellipse, get_ellipse_axes
 
+
+#Parameters
 ORANGE = (255, 127,  0)
 BLACK  = (  0,   0,  0)
 BLUE   = ( 70, 130, 180)
@@ -128,16 +130,16 @@ EXPERIMENTS = [
         },
     },
     {
-        "name": "5 – Few Landmarks (max 3 visible)",
+        "name": "5 – Guaranteed 3 Landmarks",
         "desc": [
-            "Only up to 3 landmarks are fed to KF per step.",
-            "Triangulation sometimes becomes fragile.",
-            "Expect: patchy corrections and higher variance.",
-            "Compare ellipse size vs baseline.",
+            "KF always receives at least 3 landmarks.",
+            "If <3 in range, nearest extra ones added.",
+            "More pairs = more averaged triangulations.",
+            "Expect: stable corrections, smaller ellipse.",
         ],
         "overrides": {},
-        "flags": {"max_landmarks": 3},
-    },
+        "flags": {"min_landmarks": 3},
+    }, 
         {
     "name": "6 – Low Q, High R",
     "desc": [
@@ -231,12 +233,26 @@ def reset_state(exp_index: int):
         [],
     )
 
-def apply_landmark_flags(readings: list, flags: dict) -> list:
-    if flags.get("no_landmarks", False):
+def apply_landmark_flags(readings: list, flags: dict,
+                         all_readings: list = None) -> list:
+    if flags.get("no_landmarks", False): #hide all landmarks from KF entirely
         return []
-    cap = flags.get("max_landmarks", None)
-    if cap is not None:
-        return readings[:cap]
+    min_n = flags.get("min_landmarks", None)
+    if min_n is not None and all_readings is not None:
+        result = list(readings)  # start with what's already in range
+        if len(result) < min_n:
+            # collect out-of-range readings sorted by distance (nearest first)
+            out_of_range = sorted(
+                [r for r in all_readings if r not in result],
+                key=lambda r: r["distance"]
+            )
+            # top-up until we have min_n readings
+            for r in out_of_range:
+                if len(result) >= min_n:
+                    break
+                result.append(r)
+        return result
+
     return readings
 
 # Sensor noise
@@ -273,6 +289,28 @@ def get_kf_controls(v: float, omega: float, flags: dict):
     omega_kf = omega * omega_scale + omega_bias + np.random.normal(0.0, omega_std)
 
     return v_kf, omega_kf
+
+def deduplicate_landmark_readings(readings: list) -> list:
+    if not readings:
+        return readings
+
+    # Sort by distance: if two rays hit the same landmark, keep the shorter one
+    sorted_readings = sorted(readings, key=lambda r: r["distance"])
+
+    deduplicated = []
+    for reading in sorted_readings:
+        hx, hy = reading["hit_point"]
+        already_seen = False
+        for accepted in deduplicated:
+            ax, ay = accepted["hit_point"]
+            # Two hit points within diameter (10) = same landmark
+            if math.hypot(hx - ax, hy - ay) < 10.0:
+                already_seen = True
+                break
+        if not already_seen:
+            deduplicated.append(reading)
+
+    return deduplicated
 
 def draw_solid_trail(surface, trail, color, width=2):
     """Draw a solid trajectory trail."""
@@ -696,8 +734,6 @@ while running:
 
         RECORD_PATH.append((mm.x, mm.y, mm.theta, mm.v, mm.omega, mm.dt))
     
-    #if MODE == "REPLAY":
-        #clock.tick(60)  # just FPS, do NOT touch dt
    
     # Sensor readings
     all_landmark_readings = mm.get_sensor_readings(landmarks)
