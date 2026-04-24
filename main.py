@@ -1,10 +1,12 @@
 import pygame
 import sys
 import math
+import numpy as np
 import motionmodel as mm
 import map as mp
 import filter as kf
 from ellipse import draw_covariance_ellipse
+from occupancygrid import OccupancyGrid
 
 pygame.init()
 
@@ -13,6 +15,7 @@ BLACK  = (0, 0, 0)
 BLUE   = (70, 130, 180)
 RED    = (200, 0, 0)
 GREEN  = (0, 200, 0)
+WHITE  = (255, 255, 255)
 
 OMEGA    = 5.0
 VELOCITY = 100.0
@@ -53,6 +56,18 @@ kf_sigma_xy       = 0.0
 true_trail = []
 kf_trail   = []
 
+grid = OccupancyGrid(
+    x_min=-600.0, x_max=450.0,
+    y_min=-400.0, y_max=400.0,
+    cell_size=10.0,
+    p_occ=0.70,
+    p_free=0.30,
+    p_prior=0.50,
+    l_max=5.0,
+    l_min=-5.0,
+)
+show_map = True    # toggle with M key
+
 running = True
 while running:
 
@@ -60,6 +75,12 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
+        elif event.type == pygame.KEYDOWN:
+            # M → toggle map overlay
+            if event.key == pygame.K_m:
+                show_map = not show_map
+
+    # Robot Movement
     keys = pygame.key.get_pressed()
     if   keys[pygame.K_LEFT]:  mm.omega =  OMEGA
     elif keys[pygame.K_RIGHT]: mm.omega = -OMEGA
@@ -72,58 +93,13 @@ while running:
     mm.dt      = clock.tick(60) / 1000
     collisions = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
 
-    landmark_measurements = mm.get_landmark_measurements(landmark_groups)
+    # Sensor Readings
+    landmark_measurements = mm.get_landmark_measurements(landmark_groups) # For Kalman filter correction step
+    wall_sensor_readings = mm.get_sensor_readings(walls) # For Occupancy grid mapping
 
     true_trail.append((mm.x, mm.y))
     if len(true_trail) > TRAIL_LEN:
         true_trail.pop(0)
-
-    screen.fill((255, 255, 255))
-
-    # Draw Walls
-    for obstacle in obstacles:
-        s = mm.world_to_screen(obstacle[0][0], obstacle[0][1], SCREEN_WIDTH, SCREEN_HEIGHT)
-        e = mm.world_to_screen(obstacle[1][0], obstacle[1][1], SCREEN_WIDTH, SCREEN_HEIGHT)
-        pygame.draw.line(screen, BLACK, s, e, 3)
-
-    screen_x, screen_y = mm.world_to_screen(mm.x, mm.y, SCREEN_WIDTH, SCREEN_HEIGHT)
-    
-    #Draw landmark sensor range (light green circle)
-    pygame.draw.circle(screen, (190, 235, 190), (screen_x, screen_y), int(mm.LANDMARK_SENSOR_RANGE), 1)
-
-    # Draw trajectory (solid blue line)
-    if len(true_trail) >= 2:
-        trail_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
-                     for px, py in true_trail]
-        pygame.draw.lines(screen, (30, 80, 200), False, trail_pts, 2)
-
-    # Draw KF (estimated) trajectory trail (dashed orange)
-    if len(kf_trail) >= 2:
-        kf_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
-                  for px, py in kf_trail]
-        for i in range(0, len(kf_pts) - 1, 4):
-            pygame.draw.line(screen, ORANGE, kf_pts[i], kf_pts[min(i+2, len(kf_pts)-1)], 2)
-
-    #Omnidirectional landmark detections
-    for reading in landmark_measurements:
-        landmark_x, landmark_y = reading["landmark_center"]
-        landmark_sx, landmark_sy = mm.world_to_screen(landmark_x, landmark_y, SCREEN_WIDTH, SCREEN_HEIGHT)
-
-        #Draw green line from robot to landmark and green circle at landmark position if detected
-        pygame.draw.line(screen, GREEN, (screen_x, screen_y), (landmark_sx, landmark_sy), 1)
-        pygame.draw.circle(screen, GREEN, (landmark_sx, landmark_sy), 6, 3)
-
-        #Position label slightly to the right and above the landmark
-        label_x = landmark_x + 10
-        label_y = landmark_y + 10
-        label_sx, label_sy = mm.world_to_screen(label_x, label_y, SCREEN_WIDTH, SCREEN_HEIGHT)
-        label = (
-            f"L{reading['landmark_id']} "
-            f"({landmark_x:.0f},{landmark_y:.0f}) "
-            f"r={reading['distance']:.1f} "
-            f"φ={math.degrees(reading['bearing_rad']):.1f}°"
-        )
-        screen.blit(font.render(label, True, BLACK), (label_sx, label_sy))
 
     # Kalman Filter step 
     kf_mu, kf_sigma_mat = kf.kalman_filter(
@@ -147,6 +123,80 @@ while running:
     kf_trail.append((kf_est_x, kf_est_y))
     if len(kf_trail) > TRAIL_LEN:
         kf_trail.pop(0)
+
+    # Occupancy grid update
+    grid.update(
+        robot_x=kf_est_x,
+        robot_y=kf_est_y,
+        sensor_readings=wall_sensor_readings,
+        max_range=mm.SENSOR_MAX_RANGE,
+    )
+
+    # Drawing
+    screen.fill(WHITE)
+
+    # Occupancy grid
+    if show_map:
+        grid.draw(
+            surface=screen,
+            world_to_screen_fn=mm.world_to_screen,
+            screen_width=SCREEN_WIDTH,
+            screen_height=SCREEN_HEIGHT,
+            robot_x=mm.x,   # true robot position for correct viewport culling
+            robot_y=mm.y,
+        )
+
+    # Draw Walls and landmarks
+    for obstacle in obstacles:
+        s = mm.world_to_screen(obstacle[0][0], obstacle[0][1], SCREEN_WIDTH, SCREEN_HEIGHT)
+        e = mm.world_to_screen(obstacle[1][0], obstacle[1][1], SCREEN_WIDTH, SCREEN_HEIGHT)
+        pygame.draw.line(screen, BLACK, s, e, 3)
+
+    screen_x, screen_y = mm.world_to_screen(mm.x, mm.y, SCREEN_WIDTH, SCREEN_HEIGHT)
+    
+    #Draw landmark sensor range (light green circle)
+    pygame.draw.circle(screen, (190, 235, 190), (screen_x, screen_y), int(mm.LANDMARK_SENSOR_RANGE), 1)
+
+    # Draw trajectory (solid blue line)
+    if len(true_trail) >= 2:
+        trail_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
+                     for px, py in true_trail]
+        pygame.draw.lines(screen, (30, 80, 200), False, trail_pts, 2)
+
+    # Draw KF (estimated) trajectory trail (dashed orange)
+    if len(kf_trail) >= 2:
+        kf_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
+                  for px, py in kf_trail]
+        for i in range(0, len(kf_pts) - 1, 4):
+            pygame.draw.line(screen, ORANGE, kf_pts[i], kf_pts[min(i+2, len(kf_pts)-1)], 2)
+
+    # Wall sensor - shows what the mapping sensor sees
+    for reading in wall_sensor_readings:
+        hit_x, hit_y = reading["hit_point"]
+        hit_sx, hit_sy = mm.world_to_screen(hit_x, hit_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+        pygame.draw.line(screen, (210, 210, 230),
+                         (screen_x, screen_y), (hit_sx, hit_sy), 1)
+
+    #Omnidirectional landmark detections
+    for reading in landmark_measurements:
+        landmark_x, landmark_y = reading["landmark_center"]
+        landmark_sx, landmark_sy = mm.world_to_screen(landmark_x, landmark_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+
+        #Draw green line from robot to landmark and green circle at landmark position if detected
+        pygame.draw.line(screen, GREEN, (screen_x, screen_y), (landmark_sx, landmark_sy), 1)
+        pygame.draw.circle(screen, GREEN, (landmark_sx, landmark_sy), 6, 3)
+
+        #Position label slightly to the right and above the landmark
+        label_x = landmark_x + 10
+        label_y = landmark_y + 10
+        label_sx, label_sy = mm.world_to_screen(label_x, label_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+        label = (
+            f"L{reading['landmark_id']} "
+            f"({landmark_x:.0f},{landmark_y:.0f}) "
+            f"r={reading['distance']:.1f} "
+            f"φ={math.degrees(reading['bearing_rad']):.1f}°"
+        )
+        screen.blit(font.render(label, True, BLACK), (label_sx, label_sy))
 
     # Draw actual (green/red) robot
     robot_color = GREEN if not collisions else RED
@@ -190,12 +240,18 @@ while running:
         thickness      = 2,
     )
 
+    # Compute live map statistics for display
+    total_cells    = grid.rows * grid.cols
+    occupied_cells = int(np.sum(grid.log_odds > 0.1))
+    free_cells     = int(np.sum(grid.log_odds < -0.1))
+    explored_pct   = 100.0 * (occupied_cells + free_cells) / total_cells
+
     visible_count = len(landmark_measurements)
     hud_lines = [
-        f"True:  x={mm.x:.1f}  y={mm.y:.1f}  θ={math.degrees(mm.theta):.1f}°",
+        f"True:  x={mm.x:.1f}  y={mm.y:.1f}  θ={math.degrees(mm.theta) % 360:.1f}°",
         f"KF:    x={kf_est_x:.1f}  y={kf_est_y:.1f}  θ={math.degrees(kf_est_theta):.1f}°",
         f"Error: {math.hypot(mm.x-kf_est_x, mm.y-kf_est_y):.1f}  |  Landmarks visible: {visible_count}",
-        f"σx²={kf_sigma_sq_x:.1f}  σy²={kf_sigma_sq_y:.1f}  (ellipse shows 2σ)",
+        # f"σx²={kf_sigma_sq_x:.1f}  σy²={kf_sigma_sq_y:.1f}  (ellipse shows 2σ)",
     ]
     for row, line in enumerate(hud_lines):
         surf = font.render(line, True, (20, 20, 20))
