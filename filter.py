@@ -147,3 +147,60 @@ def kalman_filter(x,y,theta,sigma_sq_x,sigma_sq_y, sigma_sq_theta, sigma_sq_Rx,s
     sigma_new = (np.eye(3)-K@C)@sigma_new_bar
 
     return mu_new, sigma_new
+
+def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measurements):
+
+    th = normalize_angle(theta)
+ 
+    mu_bar = np.array([
+        [x + v * dt * math.cos(th)],
+        [y + v * dt * math.sin(th)],
+        [normalize_angle(th + omega * dt)],
+    ])
+ 
+    G = np.array([
+        [1.0, 0.0, -v * dt * math.sin(th)],
+        [0.0, 1.0,  v * dt * math.cos(th)],
+        [0.0, 0.0,  1.0],
+    ])
+ 
+    sigma_bar = G @ sigma_mat @ G.T + sigma_R
+
+    for reading in measurements:
+        lx, ly = reading["landmark_center"]
+ 
+        dx = lx - mu_bar[0, 0]
+        dy = ly - mu_bar[1, 0]
+        q  = dx**2 + dy**2
+ 
+        if q < 1e-9:
+            continue
+ 
+        sqrt_q = math.sqrt(q)
+ 
+        z_hat = np.array([
+            [sqrt_q],
+            [normalize_angle(math.atan2(dy, dx) - mu_bar[2, 0])],
+        ])
+ 
+        z = np.array([
+            [reading["distance"]],
+            [normalize_angle(reading["bearing_rad"])],
+        ])
+ 
+        H = np.array([
+            [-dx / sqrt_q, -dy / sqrt_q,  0.0],
+            [ dy / q,      -dx / q,      -1.0],
+        ])
+ 
+        S = H @ sigma_bar @ H.T + sigma_Q
+        K = sigma_bar @ H.T @ np.linalg.inv(S)
+ 
+        innov = z - z_hat
+        innov[1,0] = normalize_angle(innov[1, 0])
+ 
+        mu_bar = mu_bar + K @ innov
+        mu_bar[2,0] = normalize_angle(mu_bar[2, 0])
+        sigma_bar = (np.eye(3) - K @ H) @ sigma_bar
+ 
+    return mu_bar, sigma_bar

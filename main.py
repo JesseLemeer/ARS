@@ -28,9 +28,15 @@ KF_SIGMA_SQ_THETA  = math.radians(10.0) ** 2
 KF_SIGMA_SQ_RX     = 2.0
 KF_SIGMA_SQ_RY     = 2.0
 KF_SIGMA_SQ_RTHETA = math.radians(2.0) ** 2
+ 
+# KF-only noise (3x3 observation, triangulated pose)
 KF_SIGMA_SQ_QX     = 16.0
 KF_SIGMA_SQ_QY     = 16.0
 KF_SIGMA_SQ_QTHETA = math.radians(8.0) ** 2
+ 
+# EKF-only noise (2x2 observation: range + bearing)
+EKF_SIGMA_SQ_R   = 4.0
+EKF_SIGMA_SQ_PHI = math.radians(3.0) ** 2
 
 SCREEN_WIDTH,  SCREEN_HEIGHT  = 800, 600
 WORLD_WIDTH,   WORLD_HEIGHT   = 1600, 1600
@@ -45,16 +51,23 @@ font  = pygame.font.SysFont(None, 20)
 walls, landmarks, landmark_groups = mp.create_map()
 obstacles = walls + landmarks
 
-kf_est_x     = mm.x
-kf_est_y     = mm.y
-kf_est_theta = mm.theta
+kf_est_x      = mm.x
+kf_est_y      = mm.y
+kf_est_theta  = mm.theta
 kf_sigma_sq_x     = KF_SIGMA_SQ_X
 kf_sigma_sq_y     = KF_SIGMA_SQ_Y
 kf_sigma_sq_theta = KF_SIGMA_SQ_THETA
 kf_sigma_xy       = 0.0
+                                                                                                                                                                                                                                                                                                                                                            
+ekf_est_x     = mm.x
+ekf_est_y     = mm.y
+ekf_est_theta = mm.theta
+ekf_sigma_mat = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
+ekf_sigma_R   = np.diag([KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA])
+ekf_sigma_Q   = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
 
 true_trail = []
-kf_trail   = []
+est_trail   = []
 
 grid = OccupancyGrid(
     x_min=-600.0, x_max=450.0,
@@ -67,7 +80,7 @@ grid = OccupancyGrid(
     l_min=-5.0,
 )
 show_map = True    # toggle with M key
-
+ekf = True #switches between ekf and kf
 running = True
 while running:
 
@@ -101,33 +114,55 @@ while running:
     if len(true_trail) > TRAIL_LEN:
         true_trail.pop(0)
 
-    # Kalman Filter step 
-    kf_mu, kf_sigma_mat = kf.kalman_filter(
-        kf_est_x, kf_est_y, kf_est_theta,
-        kf_sigma_sq_x, kf_sigma_sq_y, kf_sigma_sq_theta,
-        KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA,
-        KF_SIGMA_SQ_QX, KF_SIGMA_SQ_QY, KF_SIGMA_SQ_QTHETA,
-        mm.v, mm.omega, mm.dt,
-        landmark_measurements,
-    )
-
-    kf_est_x     = float(kf_mu[0, 0])
-    kf_est_y     = float(kf_mu[1, 0])
-    kf_est_theta = float(kf_mu[2, 0])
-    kf_sigma_sq_x     = float(kf_sigma_mat[0, 0])
-    kf_sigma_sq_y     = float(kf_sigma_mat[1, 1])
-    kf_sigma_sq_theta = float(kf_sigma_mat[2, 2])
-    kf_sigma_xy       = float(kf_sigma_mat[0, 1])
-
-    # Record KF position for trail
-    kf_trail.append((kf_est_x, kf_est_y))
-    if len(kf_trail) > TRAIL_LEN:
-        kf_trail.pop(0)
-
+    if not ekf:
+        kf_mu, kf_sigma_mat = kf.kalman_filter(
+            kf_est_x, kf_est_y, kf_est_theta,
+            kf_sigma_sq_x, kf_sigma_sq_y, kf_sigma_sq_theta,
+            KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA,
+            KF_SIGMA_SQ_QX, KF_SIGMA_SQ_QY, KF_SIGMA_SQ_QTHETA,
+            mm.v, mm.omega, mm.dt,
+            landmark_measurements,
+        )
+        kf_est_x = float(kf_mu[0, 0])
+        kf_est_y = float(kf_mu[1, 0])
+        kf_est_theta = float(kf_mu[2, 0])
+        kf_sigma_sq_x = float(kf_sigma_mat[0, 0])
+        kf_sigma_sq_y = float(kf_sigma_mat[1, 1])
+        kf_sigma_sq_theta = float(kf_sigma_mat[2, 2])
+        kf_sigma_xy = float(kf_sigma_mat[0, 1])
+    
+        est_x = kf_est_x
+        est_y = kf_est_y
+        est_theta = kf_est_theta
+        est_sig_xx = kf_sigma_sq_x
+        est_sig_yy = kf_sigma_sq_y
+        est_sig_xy = kf_sigma_xy
+    else:
+        ekf_mu, ekf_sigma_mat = kf.ekf_filter(
+            ekf_est_x, ekf_est_y, ekf_est_theta,
+            ekf_sigma_mat, ekf_sigma_R, ekf_sigma_Q,
+            mm.v, mm.omega, mm.dt,
+            landmark_measurements,
+        )
+        ekf_est_x = float(ekf_mu[0, 0])
+        ekf_est_y = float(ekf_mu[1, 0])
+        ekf_est_theta = float(ekf_mu[2, 0])
+        
+        est_x = ekf_est_x
+        est_y = ekf_est_y
+        est_theta = ekf_est_theta
+        est_sig_xx = float(ekf_sigma_mat[0, 0])
+        est_sig_yy = float(ekf_sigma_mat[1, 1])
+        est_sig_xy = float(ekf_sigma_mat[0, 1])
+    
+    est_trail.append((est_x, est_y))
+    if len(est_trail) > TRAIL_LEN:
+        est_trail.pop(0)
+        
     # Occupancy grid update
     grid.update(
-        robot_x=kf_est_x,
-        robot_y=kf_est_y,
+        robot_x=est_x,
+        robot_y=est_y,
         sensor_readings=wall_sensor_readings,
         max_range=mm.SENSOR_MAX_RANGE,
     )
@@ -164,11 +199,11 @@ while running:
         pygame.draw.lines(screen, (30, 80, 200), False, trail_pts, 2)
 
     # Draw KF (estimated) trajectory trail (dashed orange)
-    if len(kf_trail) >= 2:
-        kf_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
-                  for px, py in kf_trail]
-        for i in range(0, len(kf_pts) - 1, 4):
-            pygame.draw.line(screen, ORANGE, kf_pts[i], kf_pts[min(i+2, len(kf_pts)-1)], 2)
+    if len(est_trail) >= 2:
+        est_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
+                  for px, py in est_trail]
+        for i in range(0, len(est_pts) - 1, 4):
+            pygame.draw.line(screen, ORANGE, est_pts[i], est_pts[min(i+2, len(est_pts)-1)], 2)
 
     # Wall sensor - shows what the mapping sensor sees
     for reading in wall_sensor_readings:
@@ -211,33 +246,32 @@ while running:
     fx_s, fy_s = mm.world_to_screen(front_x, front_y, SCREEN_WIDTH, SCREEN_HEIGHT)
     pygame.draw.line(screen, BLACK, (screen_x, screen_y), (fx_s, fy_s), 2)
 
-    # Draw KF estimate car (orange outline)
-    kf_screen_x, kf_screen_y = mm.world_to_screen(kf_est_x, kf_est_y, SCREEN_WIDTH, SCREEN_HEIGHT)
-    kf_corners_world  = mm.get_robot_corners_at(kf_est_x, kf_est_y, kf_est_theta, CAR_LENGTH, CAR_WIDTH)
-    kf_corners_screen = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
-                         for px, py in kf_corners_world]
-    pygame.draw.polygon(screen, ORANGE, kf_corners_screen, 2)
-
-    kf_fx = kf_est_x + (CAR_LENGTH / 2) * math.cos(kf_est_theta)
-    kf_fy = kf_est_y + (CAR_LENGTH / 2) * math.sin(kf_est_theta)
-    kfx_s, kfy_s = mm.world_to_screen(kf_fx, kf_fy, SCREEN_WIDTH, SCREEN_HEIGHT)
-    pygame.draw.line(screen, ORANGE, (kf_screen_x, kf_screen_y), (kfx_s, kfy_s), 2)
+    
+    est_sx, est_sy = mm.world_to_screen(est_x, est_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+    est_corners_screen = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
+                          for px, py in mm.get_robot_corners_at(
+                              est_x, est_y, est_theta, CAR_LENGTH, CAR_WIDTH)]
+    pygame.draw.polygon(screen, ORANGE, est_corners_screen, 2)
+    efx = est_x + (CAR_LENGTH / 2) * math.cos(est_theta)
+    efy = est_y + (CAR_LENGTH / 2) * math.sin(est_theta)
+    efx_s, efy_s = mm.world_to_screen(efx, efy, SCREEN_WIDTH, SCREEN_HEIGHT)
+    pygame.draw.line(screen, ORANGE, (est_sx, est_sy), (efx_s, efy_s), 2)
 
     # Draw COVARIANCE ELLIPSE around KF estimate
     draw_covariance_ellipse(
-        surface        = screen,
-        kf_est_x       = kf_est_x,
-        kf_est_y       = kf_est_y,
-        sigma_xx       = kf_sigma_sq_x,
-        sigma_yy       = kf_sigma_sq_y,
-        sigma_xy       = kf_sigma_xy,
+        surface = screen,
+        kf_est_x = est_x,
+        kf_est_y = est_y,
+        sigma_xx = est_sig_xx,
+        sigma_yy = est_sig_yy,
+        sigma_xy = est_sig_xy,
         world_to_screen= mm.world_to_screen,
-        screen_width   = SCREEN_WIDTH,
-        screen_height  = SCREEN_HEIGHT,
-        color          = ORANGE,
-        n_std          = 2,
-        n_points       = 64,
-        thickness      = 2,
+        screen_width = SCREEN_WIDTH,
+        screen_height = SCREEN_HEIGHT,
+        color = ORANGE,
+        n_std = 2,
+        n_points = 64,
+        thickness = 2,
     )
 
     # Compute live map statistics for display
@@ -249,9 +283,9 @@ while running:
     visible_count = len(landmark_measurements)
     hud_lines = [
         f"True:  x={mm.x:.1f}  y={mm.y:.1f}  θ={math.degrees(mm.theta) % 360:.1f}°",
-        f"KF:    x={kf_est_x:.1f}  y={kf_est_y:.1f}  θ={math.degrees(kf_est_theta):.1f}°",
-        f"Error: {math.hypot(mm.x-kf_est_x, mm.y-kf_est_y):.1f}  |  Landmarks visible: {visible_count}",
-        # f"σx²={kf_sigma_sq_x:.1f}  σy²={kf_sigma_sq_y:.1f}  (ellipse shows 2σ)",
+        f"KF:    x={est_x:.1f}  y={est_y:.1f}  θ={math.degrees(est_theta):.1f}°",
+        f"Error: {math.hypot(mm.x-est_x, mm.y-est_y):.1f}  |  Landmarks visible: {visible_count}",
+        # f"σx²={est_sig_xx:.1f}  σy²={est_sig_yy:.1f}  (ellipse shows 2σ)",
     ]
     for row, line in enumerate(hud_lines):
         surf = font.render(line, True, (20, 20, 20))
