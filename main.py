@@ -66,6 +66,12 @@ ekf_sigma_mat = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
 ekf_sigma_R   = np.diag([KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA])
 ekf_sigma_Q   = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
 
+slam_mu    = np.array([mm.x, mm.y, mm.theta])   # grows as landmarks discovered
+slam_sigma = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
+slam_landmark_index = {}  # {landmark_id -> state index}
+
+ekf_sigma_Q_slam = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
+
 true_trail = []
 est_trail   = []
 
@@ -81,6 +87,7 @@ grid = OccupancyGrid(
 )
 show_map = True    # toggle with M key
 ekf = True #switches between ekf and kf
+slam = True
 running = True
 while running:
 
@@ -138,23 +145,39 @@ while running:
         est_sig_yy = kf_sigma_sq_y
         est_sig_xy = kf_sigma_xy
     else:
-        ekf_mu, ekf_sigma_mat = kf.ekf_filter(
-            ekf_est_x, ekf_est_y, ekf_est_theta,
-            ekf_sigma_mat, ekf_sigma_R, ekf_sigma_Q,
-            mm.v, mm.omega, mm.dt,
-            landmark_measurements,
-        )
-        ekf_est_x = float(ekf_mu[0, 0])
-        ekf_est_y = float(ekf_mu[1, 0])
-        ekf_est_theta = float(ekf_mu[2, 0])
+        if slam:
+            slam_mu, slam_sigma, slam_landmark_index = kf.ekf_slam(
+                slam_mu, slam_sigma,
+                ekf_sigma_R,
+                ekf_sigma_Q_slam,
+                mm.v, mm.omega, mm.dt,
+                landmark_measurements,
+                slam_landmark_index
+            )
+            est_x     = slam_mu[0]
+            est_y     = slam_mu[1]
+            est_theta = slam_mu[2]
+            est_sig_xx = slam_sigma[0, 0]
+            est_sig_yy = slam_sigma[1, 1]
+            est_sig_xy = slam_sigma[0, 1]
+        else:       
+            ekf_mu, ekf_sigma_mat = kf.ekf_filter(
+                ekf_est_x, ekf_est_y, ekf_est_theta,
+                ekf_sigma_mat, ekf_sigma_R, ekf_sigma_Q,
+                mm.v, mm.omega, mm.dt,
+                landmark_measurements,
+            )
+            ekf_est_x = float(ekf_mu[0, 0])
+            ekf_est_y = float(ekf_mu[1, 0])
+            ekf_est_theta = float(ekf_mu[2, 0])
+            
+            est_x = ekf_est_x
+            est_y = ekf_est_y
+            est_theta = ekf_est_theta
+            est_sig_xx = float(ekf_sigma_mat[0, 0])
+            est_sig_yy = float(ekf_sigma_mat[1, 1])
+            est_sig_xy = float(ekf_sigma_mat[0, 1])
         
-        est_x = ekf_est_x
-        est_y = ekf_est_y
-        est_theta = ekf_est_theta
-        est_sig_xx = float(ekf_sigma_mat[0, 0])
-        est_sig_yy = float(ekf_sigma_mat[1, 1])
-        est_sig_xy = float(ekf_sigma_mat[0, 1])
-    
     est_trail.append((est_x, est_y))
     if len(est_trail) > TRAIL_LEN:
         est_trail.pop(0)

@@ -204,3 +204,92 @@ def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measuremen
         sigma_bar = (np.eye(3) - K @ H) @ sigma_bar
  
     return mu_bar, sigma_bar
+
+def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_index):
+    """
+    mu:             (3+2N,) state vector [x, y, theta, l1x, l1y, ...]
+    sigma:          (3+2N, 3+2N) covariance matrix
+    sigma_R:        3x3 process noise
+    sigma_Q:        2x2 measurement noise (range, bearing)
+    landmark_index: dict {landmark_id -> column index in mu (0-indexed from 3)}
+    """
+    n = len(mu)
+    th = normalize_angle(mu[2])
+
+    # --- PREDICTION (only robot pose rows/cols change) ---
+    mu_bar = mu.copy()
+    mu_bar[0] += v * dt * math.cos(th)
+    mu_bar[1] += v * dt * math.sin(th)
+    mu_bar[2]  = normalize_angle(th + omega * dt)
+
+    G = np.eye(n)
+    G[0, 2] = -v * dt * math.sin(th)
+    G[1, 2] =  v * dt * math.cos(th)
+
+    R_full = np.zeros((n, n))
+    R_full[:3, :3] = sigma_R
+
+    sigma_bar = G @ sigma @ G.T + R_full
+
+    for reading in measurements:
+        lid = reading["landmark_id"]
+        r_obs = reading["distance"]
+        phi_obs = reading["bearing_rad"]
+
+        if lid not in landmark_index:
+            idx = len(landmark_index) * 2
+            state_idx = 3 + idx
+            landmark_index[lid] = state_idx
+
+            # Expand mu and sigma
+            lx_est = mu_bar[0] + r_obs * math.cos(phi_obs + mu_bar[2])
+            ly_est = mu_bar[1] + r_obs * math.sin(phi_obs + mu_bar[2])
+
+            new_size = len(mu_bar) + 2
+            mu_bar_new = np.zeros(new_size)
+            mu_bar_new[:len(mu_bar)] = mu_bar
+            mu_bar_new[state_idx]     = lx_est
+            mu_bar_new[state_idx + 1] = ly_est
+            mu_bar = mu_bar_new
+
+            sigma_new = np.eye(new_size) * 1e6  # large uncertainty for new landmark
+            sigma_new[:len(sigma_bar), :len(sigma_bar)] = sigma_bar
+            sigma_bar = sigma_new
+            n = new_size
+
+        j = landmark_index[lid]
+        lx = mu_bar[j]
+        ly = mu_bar[j + 1]
+
+        dx = lx - mu_bar[0]
+        dy = ly - mu_bar[1]
+        q  = dx**2 + dy**2
+        if q < 1e-9:
+            continue
+        sqrt_q = math.sqrt(q)
+
+        # Expected measurement
+        z_hat = np.array([
+            [sqrt_q],
+            [normalize_angle(math.atan2(dy, dx) - mu_bar[2])]
+        ])
+        z = np.array([[r_obs], [normalize_angle(phi_obs)]])
+
+        H = np.zeros((2, n))
+        H[0, 0] = -dx / sqrt_q;   H[0, 1] = -dy / sqrt_q
+        H[1, 0] =  dy / q;        H[1, 1] = -dx / q;   H[1, 2] = -1.0
+        H[0, j] =  dx / sqrt_q;   H[0, j+1] = dy / sqrt_q
+        H[1, j] = -dy / q;        H[1, j+1] = dx / q
+
+        S = H @ sigma_bar @ H.T + sigma_Q
+        K = sigma_bar @ H.T @ np.linalg.inv(S)
+
+        innov = z - z_hat
+        innov[1, 0] = normalize_angle(innov[1, 0])
+
+        mu_bar   = mu_bar.reshape(-1, 1)
+        mu_bar   = (mu_bar + K @ innov).flatten()
+        mu_bar[2] = normalize_angle(mu_bar[2])
+        sigma_bar = (np.eye(n) - K @ H) @ sigma_bar
+
+    return mu_bar, sigma_bar, landmark_index
