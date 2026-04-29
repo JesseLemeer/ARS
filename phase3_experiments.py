@@ -137,7 +137,7 @@ class PatrolRobot:
         fy = self.y + (self.h / 2) * math.sin(self.theta)
         cx_s = world_to_screen_fn(self.x, self.y,  SCREEN_W, SCREEN_H)
         fx_s = world_to_screen_fn(fx,     fy,       SCREEN_W, SCREEN_H)
-        pygame.draw.line(surface, BLACK, cx_s, fx_s, 2)
+        pygame.draw.line(surface, WHITE, cx_s, fx_s, 2)
 
 
 
@@ -149,8 +149,9 @@ EXPERIMENTS = [
         "id":   "A1",
         "name": "1 – Baseline (cell=10)",
         "desc": [
-            "Default 10 x 10 unit cells.",
+            "Default 10 × 10 unit cells.",
             "Standard map extent.",
+            "Reference for all resolution comparisons.",
             "Expect: balanced accuracy vs speed.",
         ],
         "grid_overrides": {},
@@ -161,7 +162,8 @@ EXPERIMENTS = [
         "id":   "A2",
         "name": "2 – Coarse Grid (cell=30)",
         "desc": [
-            "Cells are 3x larger (30 units).",
+            "Cells are 3× larger (30 units).",
+            "Map uses ~11% the memory of A1.",
             "Walls appear as thick blobs.",
             "Expect: blocky map, fast update.",
         ],
@@ -173,7 +175,8 @@ EXPERIMENTS = [
         "id":   "A3",
         "name": "3 – Fine Grid (cell=5)",
         "desc": [
-            "Cells are 2x smaller (5 units).",
+            "Cells are 2× smaller (5 units).",
+            "Map uses 4× the memory of A1.",
             "Sharp wall edges, slower update.",
             "Expect: crisp map, higher CPU cost.",
         ],
@@ -183,11 +186,12 @@ EXPERIMENTS = [
     },
     
     {
-        "id":   "A4",
+        "id":   "4",
         "name": "4 – Moving Robot (Obstacle)",
         "desc": [
             "A patrol robot orbits a fixed path.",
             "Sensor sees it as a solid obstacle.",
+            "No log-odds decay → ghost persists.",
             "Expect: smeared trail in the grid.",
         ],
         "grid_overrides": {},
@@ -196,7 +200,7 @@ EXPERIMENTS = [
     },
     
     {
-        "id":   "B5",
+        "id":   "5",
         "name": "5 – Softer Sensor Model (p_occ=0.6, p_free=0.4)",
         "desc": [
             "Same setup as baseline (A1).",
@@ -212,7 +216,7 @@ EXPERIMENTS = [
         "decay": 1.0,
     },
     {
-        "id":   "B6",
+        "id":   "6",
         "name": "6 – Map Memory Decay (log-odds fading)",
         "desc": [
             "Same setup as baseline (A1).",
@@ -586,8 +590,8 @@ def draw_hud(surface, exp_idx, visible_lm,
         f"LM visible : {visible_lm}",
         f"KF error   : {err:.1f}",
         f"Mean err   : {mean_err:.1f}",
-        f"sigma_x^2  : {kf_sigma[0]:.1f}",
-        f"sigma_y^2  : {kf_sigma[1]:.1f}",
+        f"σx²        : {kf_sigma[0]:.1f}",
+        f"σy²        : {kf_sigma[1]:.1f}",
         f"Occ cells  : {occ:,}",
         f"Free cells : {free:,}",
         f"Explored % : {expl:.1f}%",
@@ -600,11 +604,14 @@ def draw_hud(surface, exp_idx, visible_lm,
     # ── live SLAM stats ──
     txt("LIVE STATS (SLAM)", color=TITLE_COL, bold=True)
     slam_exp = SLAM_EXPERIMENTS[slam_exp_idx]
-    txt(f"{slam_exp['id']}", color=WARN_COL)
+    txt(slam_exp["id"], color=WARN_COL, bold=True)
     for part in slam_exp["name"].split("–")[1:]:
-        txt(part.strip()[:36], color=(190, 190, 210))
+        txt(part.strip(), color=WARN_COL)
+    y[0] += 3
+    for line in slam_exp["desc"]:
+        txt(line[:36], color=(190, 190, 210))
         y[0] -= 3
-    y[0] += 4
+    y[0] += 6
 
     if slam_pos is not None:
         slam_err = math.hypot(true_pos[0] - slam_pos[0], true_pos[1] - slam_pos[1])
@@ -626,8 +633,7 @@ def draw_hud(surface, exp_idx, visible_lm,
     txt("CONTROLS", color=TITLE_COL, bold=True)
     for c in [
         "Arrows : drive",
-        "E      : next grid exp",
-        "F      : next SLAM exp",
+        "E      : next experiment",
         "R      : reset",
         "D      : toggle map",
         "S      : save trajectory",
@@ -1148,18 +1154,7 @@ def main():
                     print(f"[Reset] {EXPERIMENTS[current_exp]['name']}")
 
                 elif k == pygame.K_e:
-                    current_exp = (current_exp + 1) % len(EXPERIMENTS)
-                    (kf_x, kf_y, kf_t,
-                     sxx, syy, stt, sxy,
-                     true_trail, kf_trail,
-                     grid, patrol,
-                     error_hist, explored_hist,
-                     slam_mu, slam_sigma, slam_lm_idx,
-                     slam_trail, slam_error_hist) = reset_state(current_exp,
-                                                                 current_slam_exp)
-                    slam_sigma_R, slam_sigma_Q, _ = make_slam_noise(current_slam_exp)
-                    print(f"[Switch grid] {EXPERIMENTS[current_exp]['name']}")
-                elif k == pygame.K_f:
+                    current_exp      = (current_exp      + 1) % len(EXPERIMENTS)
                     current_slam_exp = (current_slam_exp + 1) % len(SLAM_EXPERIMENTS)
                     (kf_x, kf_y, kf_t,
                      sxx, syy, stt, sxy,
@@ -1170,7 +1165,8 @@ def main():
                      slam_trail, slam_error_hist) = reset_state(current_exp,
                                                                  current_slam_exp)
                     slam_sigma_R, slam_sigma_Q, _ = make_slam_noise(current_slam_exp)
-                    print(f"[Switch SLAM] {SLAM_EXPERIMENTS[current_slam_exp]['name']}")
+                    print(f"[Switch] {EXPERIMENTS[current_exp]['name']}  |  "
+                          f"{SLAM_EXPERIMENTS[current_slam_exp]['name']}")
 
         # ROBOT MOTION 
         if MODE == "REPLAY":
