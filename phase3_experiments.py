@@ -137,7 +137,7 @@ class PatrolRobot:
         fy = self.y + (self.h / 2) * math.sin(self.theta)
         cx_s = world_to_screen_fn(self.x, self.y,  SCREEN_W, SCREEN_H)
         fx_s = world_to_screen_fn(fx,     fy,       SCREEN_W, SCREEN_H)
-        pygame.draw.line(surface, WHITE, cx_s, fx_s, 2)
+        pygame.draw.line(surface, BLACK, cx_s, fx_s, 2)
 
 
 
@@ -149,9 +149,8 @@ EXPERIMENTS = [
         "id":   "A1",
         "name": "1 – Baseline (cell=10)",
         "desc": [
-            "Default 10 × 10 unit cells.",
+            "Default 10 x 10 unit cells.",
             "Standard map extent.",
-            "Reference for all resolution comparisons.",
             "Expect: balanced accuracy vs speed.",
         ],
         "grid_overrides": {},
@@ -162,8 +161,7 @@ EXPERIMENTS = [
         "id":   "A2",
         "name": "2 – Coarse Grid (cell=30)",
         "desc": [
-            "Cells are 3× larger (30 units).",
-            "Map uses ~11% the memory of A1.",
+            "Cells are 3x larger (30 units).",
             "Walls appear as thick blobs.",
             "Expect: blocky map, fast update.",
         ],
@@ -175,8 +173,7 @@ EXPERIMENTS = [
         "id":   "A3",
         "name": "3 – Fine Grid (cell=5)",
         "desc": [
-            "Cells are 2× smaller (5 units).",
-            "Map uses 4× the memory of A1.",
+            "Cells are 2x smaller (5 units).",
             "Sharp wall edges, slower update.",
             "Expect: crisp map, higher CPU cost.",
         ],
@@ -186,12 +183,11 @@ EXPERIMENTS = [
     },
     
     {
-        "id":   "4",
+        "id":   "A4",
         "name": "4 – Moving Robot (Obstacle)",
         "desc": [
             "A patrol robot orbits a fixed path.",
             "Sensor sees it as a solid obstacle.",
-            "No log-odds decay → ghost persists.",
             "Expect: smeared trail in the grid.",
         ],
         "grid_overrides": {},
@@ -590,8 +586,8 @@ def draw_hud(surface, exp_idx, visible_lm,
         f"LM visible : {visible_lm}",
         f"KF error   : {err:.1f}",
         f"Mean err   : {mean_err:.1f}",
-        f"σx²        : {kf_sigma[0]:.1f}",
-        f"σy²        : {kf_sigma[1]:.1f}",
+        f"sigma_x^2  : {kf_sigma[0]:.1f}",
+        f"sigma_y^2  : {kf_sigma[1]:.1f}",
         f"Occ cells  : {occ:,}",
         f"Free cells : {free:,}",
         f"Explored % : {expl:.1f}%",
