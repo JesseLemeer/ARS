@@ -186,7 +186,7 @@ EXPERIMENTS = [
     },
     
     {
-        "id":   "4",
+        "id":   "B4",
         "name": "4 – Moving Robot (Obstacle)",
         "desc": [
             "A patrol robot orbits a fixed path.",
@@ -200,7 +200,7 @@ EXPERIMENTS = [
     },
     
     {
-        "id":   "5",
+        "id":   "B5",
         "name": "5 – Softer Sensor Model (p_occ=0.6, p_free=0.4)",
         "desc": [
             "Same setup as baseline (A1).",
@@ -216,7 +216,7 @@ EXPERIMENTS = [
         "decay": 1.0,
     },
     {
-        "id":   "6",
+        "id":   "B6",
         "name": "6 – Map Memory Decay (log-odds fading)",
         "desc": [
             "Same setup as baseline (A1).",
@@ -1163,7 +1163,6 @@ def main():
                                                                  current_slam_exp)
                     slam_sigma_R, slam_sigma_Q, _ = make_slam_noise(current_slam_exp)
                     print(f"[Switch grid] {EXPERIMENTS[current_exp]['name']}")
-
                 elif k == pygame.K_f:
                     current_slam_exp = (current_slam_exp + 1) % len(SLAM_EXPERIMENTS)
                     (kf_x, kf_y, kf_t,
@@ -1176,7 +1175,6 @@ def main():
                                                                  current_slam_exp)
                     slam_sigma_R, slam_sigma_Q, _ = make_slam_noise(current_slam_exp)
                     print(f"[Switch SLAM] {SLAM_EXPERIMENTS[current_slam_exp]['name']}")
-
 
         # ROBOT MOTION 
         if MODE == "REPLAY":
@@ -1407,6 +1405,16 @@ def main():
                  slam_pos=(slam_x, slam_y),
                  slam_n_landmarks=len(slam_lm_idx),
                  slam_error_hist=slam_error_hist)
+        
+        # Top-left dual experiment banner
+        banner_lines = [
+            f"GRID: {EXPERIMENTS[current_exp]['id']} – {EXPERIMENTS[current_exp]['name'].split('–')[-1].strip()}",
+            f"SLAM: {SLAM_EXPERIMENTS[current_slam_exp]['id']} – {SLAM_EXPERIMENTS[current_slam_exp]['name'].split('–')[-1].strip()}",
+        ]
+        for i, line in enumerate(banner_lines):
+            col = ORANGE if i == 0 else CYAN
+            surf = font_sm.render(line, True, col)
+            screen.blit(surf, (8, 8 + i * 18))
 
         pygame.display.flip()
 
