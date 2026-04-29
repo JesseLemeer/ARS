@@ -206,17 +206,9 @@ def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measuremen
     return mu_bar, sigma_bar
 
 def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_index):
-    """
-    mu:             (3+2N,) state vector [x, y, theta, l1x, l1y, ...]
-    sigma:          (3+2N, 3+2N) covariance matrix
-    sigma_R:        3x3 process noise
-    sigma_Q:        2x2 measurement noise (range, bearing)
-    landmark_index: dict {landmark_id -> column index in mu (0-indexed from 3)}
-    """
     n = len(mu)
     th = normalize_angle(mu[2])
 
-    # --- PREDICTION (only robot pose rows/cols change) ---
     mu_bar = mu.copy()
     mu_bar[0] += v * dt * math.cos(th)
     mu_bar[1] += v * dt * math.sin(th)
@@ -276,10 +268,15 @@ def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_i
         z = np.array([[r_obs], [normalize_angle(phi_obs)]])
 
         H = np.zeros((2, n))
-        H[0, 0] = -dx / sqrt_q;   H[0, 1] = -dy / sqrt_q
-        H[1, 0] =  dy / q;        H[1, 1] = -dx / q;   H[1, 2] = -1.0
-        H[0, j] =  dx / sqrt_q;   H[0, j+1] = dy / sqrt_q
-        H[1, j] = -dy / q;        H[1, j+1] = dx / q
+        H[0, 0] = -dx / sqrt_q
+        H[0, 1] = -dy / sqrt_q
+        H[1, 0] =  dy / q
+        H[1, 1] = -dx / q
+        H[1, 2] = -1.0
+        H[0, j] =  dx / sqrt_q
+        H[0, j+1] = dy / sqrt_q
+        H[1, j] = -dy / q
+        H[1, j+1] = dx / q
 
         S = H @ sigma_bar @ H.T + sigma_Q
         K = sigma_bar @ H.T @ np.linalg.inv(S)
