@@ -708,7 +708,7 @@ def run_offline_experiment(exp_index: int,
         sxy  = float(sigma_mat[0, 1])
 
         # Grid update
-        grid.update(robot_x=kf_x, robot_y=kf_y,
+        grid.update(robot_x=kf_x, robot_y=kf_y, robot_theta=kf_t,
                     sensor_readings=wall_readings,
                     max_range=mm.SENSOR_MAX_RANGE)
 
@@ -1231,7 +1231,7 @@ def main():
         slam_t = float(slam_mu[2])
 
         # OCCUPANCY GRID
-        grid.update(robot_x=kf_x, robot_y=kf_y,
+        grid.update(robot_x=kf_x, robot_y=kf_y, robot_theta=kf_t,
                     sensor_readings=wall_readings,
                     max_range=mm.SENSOR_MAX_RANGE)
 

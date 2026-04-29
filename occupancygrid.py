@@ -53,7 +53,7 @@ class OccupancyGrid:
 
     def _cells_along_ray(self, robot_x: float, robot_y: float,
                           hit_x: float, hit_y: float,
-                          max_range: float):
+                          ray_hits_obstacle: bool):
         ray_dx  = hit_x - robot_x
         ray_dy  = hit_y - robot_y
         ray_len = math.hypot(ray_dx, ray_dy)
@@ -81,24 +81,31 @@ class OccupancyGrid:
                 visited.add(rc)
                 ordered.append(rc)
 
-        # If the ray hit something (distance < max_range), the last cell is the hit cell and all previous cells are free.
+        # If the ray hit something, the last cell is the hit cell and all previous cells are free.
         # If the ray reached max range, all cells are free (no occupied update).
-        real_hit = (ray_len < max_range - 0.5)
-
-        if real_hit and ordered:
+        if ray_hits_obstacle and ordered:
             return ordered[:-1], ordered[-1] # free cells + occupied cell
         else:
             return ordered, None # all free, no hit
 
     # Update the occupancy grid
-    def update(self, robot_x: float, robot_y: float,
+    def update(self, robot_x: float, robot_y: float, robot_theta: float,
                sensor_readings: list, max_range: float):
         for reading in sensor_readings:
-            hit_x, hit_y = reading["hit_point"]
+            #Rebuild the ray endpoint from the robot's estimated pose and the local sensor reading
+            #This avoids giving direct access to the true world hit_point.
+            distance = min(float(reading["distance"]), max_range)
+            angle = robot_theta + math.radians(reading["angle_deg"])
+            hit_x = robot_x + distance * math.cos(angle)
+            hit_y = robot_y + distance * math.sin(angle)
+
+            #If the distance is less than the maximum range, then the ray hit an obstacle
+            #Otherwise the cells along the ray are free
+            ray_hits_obstacle = float(reading["distance"]) < max_range - 0.5
 
             # Get the free cells and the optional hit cell for this ray
             free_cells, hit_cell = self._cells_along_ray(
-                robot_x, robot_y, hit_x, hit_y, max_range
+                robot_x, robot_y, hit_x, hit_y, ray_hits_obstacle
             )
 
             # Applying inverse sensor model:

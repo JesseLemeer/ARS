@@ -188,6 +188,7 @@ while running:
     grid.update(
         robot_x=est_x,
         robot_y=est_y,
+        robot_theta=est_theta,
         sensor_readings=wall_sensor_readings,
         max_range=mm.SENSOR_MAX_RANGE,
     )
