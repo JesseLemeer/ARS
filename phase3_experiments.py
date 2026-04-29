@@ -289,9 +289,22 @@ SLAM_EXPERIMENTS = [
         },
         "dynamic": None,
     },
+
     {
         "id":   "S4",
-        "name": "S4 – Low Both Noises",
+        "name": "S4 – Moving Obstacle (SLAM)",
+        "desc": [
+            "Patrol robot active during replay.",
+            "Landmark sensor may confuse it with",
+            "a static landmark briefly.",
+            "Expect: transient spikes in pose error.",
+        ],
+        "slam_overrides": {},
+        "dynamic": "patrol",
+    },
+        {
+        "id":   "S5",
+        "name": "S5 – Low Both Noises",
         "desc": [
             "sigma_R=0.5, sigma_Rx=0.5 – very confident",
             "in both motion and measurements.",
@@ -306,18 +319,6 @@ SLAM_EXPERIMENTS = [
             "sigma_sq_phi":    math.radians(0.5) ** 2,
         },
         "dynamic": None,
-    },
-    {
-        "id":   "S5",
-        "name": "S5 – Moving Obstacle (SLAM)",
-        "desc": [
-            "Patrol robot active during replay.",
-            "Landmark sensor may confuse it with",
-            "a static landmark briefly.",
-            "Expect: transient spikes in pose error.",
-        ],
-        "slam_overrides": {},
-        "dynamic": "patrol",
     },
     {
         "id":   "S6",
