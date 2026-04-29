@@ -260,7 +260,7 @@ SLAM_EXPERIMENTS = [
         "id":   "S2",
         "name": "S2 – High Process Noise",
         "desc": [
-            "σ_Rx, σ_Ry raised to 20 (10× baseline).",
+            "sigma_Rx, sigma_Ry raised to 20 (10× baseline).",
             "Filter trusts motion model less.",
             "Corrections dominate the estimate.",
             "Expect: larger pose uncertainty, but",
@@ -277,7 +277,7 @@ SLAM_EXPERIMENTS = [
         "id":   "S3",
         "name": "S3 – High Measurement Noise",
         "desc": [
-            "σ_R raised to 40, σ_φ to 10°.",
+            "sigma_R raised to 40, sigma_phi to 10°.",
             "Filter trusts sensor readings less.",
             "Motion model dominates correction.",
             "Expect: slower landmark convergence,",
@@ -293,7 +293,7 @@ SLAM_EXPERIMENTS = [
         "id":   "S4",
         "name": "S4 – Low Both Noises",
         "desc": [
-            "σ_R=0.5, σ_Rx=0.5 – very confident",
+            "sigma_R=0.5, sigma_Rx=0.5 – very confident",
             "in both motion and measurements.",
             "Filter almost rigid – little correction.",
             "Expect: brittle; diverges if model wrong.",
@@ -323,7 +323,7 @@ SLAM_EXPERIMENTS = [
         "id":   "S6",
         "name": "S6 – Tight Initial Covariance",
         "desc": [
-            "Initial σ_x², σ_y² = 1 (vs 25 baseline).",
+            "Initial sigma_x², sigma_y² = 1 (vs 25 baseline).",
             "Filter very confident about start pose.",
             "Rigid early; adapts once LM seen.",
             "Expect: slower divergence correction.",

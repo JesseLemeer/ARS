@@ -16,6 +16,8 @@ BLUE   = (70, 130, 180)
 RED    = (200, 0, 0)
 GREEN  = (0, 200, 0)
 WHITE  = (255, 255, 255)
+LIGHT_GRAY = (210, 210, 230)
+LIGHT_GREEN = (190, 235, 190)
 
 OMEGA    = 5.0
 VELOCITY = 100.0
@@ -213,13 +215,13 @@ while running:
     screen_x, screen_y = mm.world_to_screen(mm.x, mm.y, SCREEN_WIDTH, SCREEN_HEIGHT)
     
     #Draw landmark sensor range (light green circle)
-    pygame.draw.circle(screen, (190, 235, 190), (screen_x, screen_y), int(mm.LANDMARK_SENSOR_RANGE), 1)
+    pygame.draw.circle(screen, LIGHT_GREEN, (screen_x, screen_y), int(mm.LANDMARK_SENSOR_RANGE), 1)
 
     # Draw trajectory (solid blue line)
     if len(true_trail) >= 2:
         trail_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
                      for px, py in true_trail]
-        pygame.draw.lines(screen, (30, 80, 200), False, trail_pts, 2)
+        pygame.draw.lines(screen, BLUE, False, trail_pts, 2)
 
     # Draw KF (estimated) trajectory trail (dashed orange)
     if len(est_trail) >= 2:
@@ -232,7 +234,7 @@ while running:
     for reading in wall_sensor_readings:
         hit_x, hit_y = reading["hit_point"]
         hit_sx, hit_sy = mm.world_to_screen(hit_x, hit_y, SCREEN_WIDTH, SCREEN_HEIGHT)
-        pygame.draw.line(screen, (210, 210, 230),
+        pygame.draw.line(screen, LIGHT_GRAY,
                          (screen_x, screen_y), (hit_sx, hit_sy), 1)
 
     #Omnidirectional landmark detections

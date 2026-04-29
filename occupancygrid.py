@@ -135,9 +135,9 @@ class OccupancyGrid:
             for col in range(col_start, col_end):
                 l = float(self.log_odds[row, col])
 
-                # Skip cells that have no meaningful evidence yet
-                if abs(l) < 0.05:
-                    continue
+                # # Skip cells that have no meaningful evidence yet
+                # if abs(l) < 0.05:
+                #     continue
 
                 # Convert log-odds to probability, then to greyscale colour. High occupancy probability -> darker colour.
                 prob  = 1.0 - 1.0 / (1.0 + math.exp(l))
