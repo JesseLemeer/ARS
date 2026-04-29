@@ -195,36 +195,36 @@ EXPERIMENTS = [
         "decay": 1.0,
     },
     
-    {
-        "id":   "5",
-        "name": "5 – Softer Sensor Model (p_occ=0.6, p_free=0.4)",
-        "desc": [
-            "Same setup as baseline (A1).",
-            "Lower confidence in sensor updates.",
-            "Log-odds changes more gradually.",
-            "Expect: smoother map, slower convergence.",
-        ],
-        "grid_overrides": {
-            "p_occ": 0.60,
-            "p_free": 0.40,
-        },
-        "dynamic": None,
-        "decay": 1.0,
-    },
-    {
-        "id":   "6",
-        "name": "6 – Map Memory Decay (log-odds fading)",
-        "desc": [
-            "Same setup as baseline (A1).",
-            "Applies exponential log-odds decay each frame.",
-            "Old observations gradually fade from the map.",
-            "Reduces ghosting from moving objects.",
-            "Expect: more adaptive but less stable map representation.",
-        ],
-        "grid_overrides": {},
-        "dynamic": None,
-        "decay": 0.998,
-},
+#     {
+#         "id":   "5",
+#         "name": "5 – Softer Sensor Model (p_occ=0.6, p_free=0.4)",
+#         "desc": [
+#             "Same setup as baseline (A1).",
+#             "Lower confidence in sensor updates.",
+#             "Log-odds changes more gradually.",
+#             "Expect: smoother map, slower convergence.",
+#         ],
+#         "grid_overrides": {
+#             "p_occ": 0.60,
+#             "p_free": 0.40,
+#         },
+#         "dynamic": None,
+#         "decay": 1.0,
+#     },
+#     {
+#         "id":   "6",
+#         "name": "6 – Map Memory Decay (log-odds fading)",
+#         "desc": [
+#             "Same setup as baseline (A1).",
+#             "Applies exponential log-odds decay each frame.",
+#             "Old observations gradually fade from the map.",
+#             "Reduces ghosting from moving objects.",
+#             "Expect: more adaptive but less stable map representation.",
+#         ],
+#         "grid_overrides": {},
+#         "dynamic": None,
+#         "decay": 0.998,
+# },
     
 ]
 
@@ -249,9 +249,10 @@ SLAM_EXPERIMENTS = [
         "name": "S1 – Baseline SLAM",
         "desc": [
             "Default process & measurement noise.",
-            "All landmarks discovered during replay.",
-            "Reference for all SLAM comparisons.",
-            "Expect: good pose & landmark accuracy.",
+            "All landmarks discovered during",
+            "replay. Reference for all SLAM",
+            "comparisons. Expect: good pose & ",
+            "landmark accuracy.",
         ],
         "slam_overrides": {},
         "dynamic": None,
@@ -260,10 +261,11 @@ SLAM_EXPERIMENTS = [
         "id":   "S2",
         "name": "S2 – High Process Noise",
         "desc": [
-            "sigma_Rx, sigma_Ry raised to 20 (10× baseline).",
-            "Filter trusts motion model less.",
-            "Corrections dominate the estimate.",
-            "Expect: larger pose uncertainty, but",
+            "sigma_Rx, sigma_Ry raised to 20",
+            "(10 x baseline). Filter trusts",
+            "motion model less. Corrections",
+            "dominate the estimate. Expect:",
+            "larger pose uncertainty, but",
             "corrections pull it back quickly.",
         ],
         "slam_overrides": {
@@ -277,7 +279,8 @@ SLAM_EXPERIMENTS = [
         "id":   "S3",
         "name": "S3 – High Measurement Noise",
         "desc": [
-            "sigma_R raised to 40, sigma_phi to 10°.",
+            "sigma_R raised to 40,",
+            "sigma_phi raised to 10°.",
             "Filter trusts sensor readings less.",
             "Motion model dominates correction.",
             "Expect: slower landmark convergence,",
@@ -295,47 +298,44 @@ SLAM_EXPERIMENTS = [
         "name": "S4 – Moving Obstacle (SLAM)",
         "desc": [
             "Patrol robot active during replay.",
-            "Landmark sensor may confuse it with",
-            "a static landmark briefly.",
-            "Expect: transient spikes in pose error.",
         ],
         "slam_overrides": {},
         "dynamic": "patrol",
     },
-        {
-        "id":   "S5",
-        "name": "S5 – Low Both Noises",
-        "desc": [
-            "sigma_R=0.5, sigma_Rx=0.5 – very confident",
-            "in both motion and measurements.",
-            "Filter almost rigid – little correction.",
-            "Expect: brittle; diverges if model wrong.",
-        ],
-        "slam_overrides": {
-            "sigma_sq_Rx":     0.5,
-            "sigma_sq_Ry":     0.5,
-            "sigma_sq_Rtheta": math.radians(0.5) ** 2,
-            "sigma_sq_R":      0.5,
-            "sigma_sq_phi":    math.radians(0.5) ** 2,
-        },
-        "dynamic": None,
-    },
-    {
-        "id":   "S6",
-        "name": "S6 – Tight Initial Covariance",
-        "desc": [
-            "Initial sigma_x², sigma_y² = 1 (vs 25 baseline).",
-            "Filter very confident about start pose.",
-            "Rigid early; adapts once LM seen.",
-            "Expect: slower divergence correction.",
-        ],
-        "slam_overrides": {
-            "sigma_sq_x": 1.0,
-            "sigma_sq_y": 1.0,
-            "sigma_sq_theta": math.radians(1.0) ** 2,
-        },
-        "dynamic": None,
-    },
+    #     {
+    #     "id":   "S5",
+    #     "name": "S5 – Low Both Noises",
+    #     "desc": [
+    #         "sigma_R=0.5, sigma_Rx=0.5 – very confident",
+    #         "in both motion and measurements.",
+    #         "Filter almost rigid – little correction.",
+    #         "Expect: brittle; diverges if model wrong.",
+    #     ],
+    #     "slam_overrides": {
+    #         "sigma_sq_Rx":     0.5,
+    #         "sigma_sq_Ry":     0.5,
+    #         "sigma_sq_Rtheta": math.radians(0.5) ** 2,
+    #         "sigma_sq_R":      0.5,
+    #         "sigma_sq_phi":    math.radians(0.5) ** 2,
+    #     },
+    #     "dynamic": None,
+    # },
+    # {
+    #     "id":   "S6",
+    #     "name": "S6 – Tight Initial Covariance",
+    #     "desc": [
+    #         "Initial sigma_x², sigma_y² = 1 (vs 25 baseline).",
+    #         "Filter very confident about start pose.",
+    #         "Rigid early; adapts once LM seen.",
+    #         "Expect: slower divergence correction.",
+    #     ],
+    #     "slam_overrides": {
+    #         "sigma_sq_x": 1.0,
+    #         "sigma_sq_y": 1.0,
+    #         "sigma_sq_theta": math.radians(1.0) ** 2,
+    #     },
+    #     "dynamic": None,
+    # },
 ]
 
 
