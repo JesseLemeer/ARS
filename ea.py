@@ -1,0 +1,235 @@
+import sys, json, math, time, os
+import numpy as np
+from ea_tools import NeuralController, EA
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
+import motionmodel as mm
+import map as mp
+
+FITNESS_MODE = "goal" # options are "floreano","coverage","goal"
+#floreano does the same as in the slides, coverage promotes exploration, goal promotes going from A to B
+
+EVAL_STEPS = 800
+DT = 0.05
+CAR_LENGTH = 24
+CAR_WIDTH = 14
+MAX_V = 100.0
+MAX_OMEGA = 5.0
+
+POP_SIZE = 20
+N_GENERATIONS = 10
+MUTATION_RATE = 0.10
+MUTATION_SCALE = 0.30
+ELITE_COUNT = 2
+
+# Grid cell size for coverage bonus (world units)
+GRID_CELL = 60.0
+COVERAGE_BONUS_PER_CELL = 5.0   # added once per newly visited cell
+
+#goal position, using (-300, 0) – the roundabout.
+GOAL_X, GOAL_Y = 278, -203
+GOAL_RADIUS = 5.0          # "reached" threshold
+GOAL_BONUS = 200.0         # one-time bonus for reaching goal
+
+# Early-stop: if robot hasn't moved more than this in N_STUCK steps → end episode
+STUCK_DIST = 5.0
+STUCK_WINDOW = 60 
+
+N_SENSORS = len(mm.SENSOR_ANGLES_DEG)
+N_HIDDEN  = 10
+N_OUTPUTS = 2
+
+controller = NeuralController(N_SENSORS, N_HIDDEN, N_OUTPUTS)
+walls, landmarks, landmark_groups = mp.create_map()
+obstacles = walls + landmarks
+
+
+def reset_robot() -> None:
+    mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
+    mm.dt = DT
+
+
+def sensor_activations() -> np.ndarray:
+    """Sensor proximity activations in [0, 1].  1 = obstacle at sensor."""
+    readings = mm.get_sensor_readings(walls)
+    acts = np.array([1.0 - r["distance"] / mm.SENSOR_MAX_RANGE for r in readings])
+    return np.clip(acts, 0.0, 1.0)
+
+
+def floreano_step(v_cmd: float, omega_cmd: float, acts: np.ndarray) -> float:
+    V      = abs(v_cmd)    / MAX_V
+    delta  = abs(omega_cmd) / MAX_OMEGA
+    i_max  = float(np.max(acts))
+    return max(0.0, V * (1.0 - math.sqrt(delta)) * (1.0 - i_max))
+
+
+def cell_key(x: float, y: float) -> tuple:
+    return (int(x // GRID_CELL), int(y // GRID_CELL))
+
+
+
+def evaluate_floreano(genome: np.ndarray) -> float:
+    """
+    Pure Floreano fitness – never negative.
+    Episode ends early if robot is stuck (saves compute + ends hopeless runs).
+    """
+    reset_robot()
+    total = 0.0
+    pos_history: list[tuple[float, float]] = []
+
+    for step in range(EVAL_STEPS):
+        mm.dt = DT
+        acts  = sensor_activations()
+
+        out       = controller.forward(acts, genome)
+        mm.v      = float(out[0]) * MAX_V
+        mm.omega  = float(out[1]) * MAX_OMEGA
+        mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+
+        total += floreano_step(mm.v, mm.omega, acts)
+
+        pos_history.append((mm.x, mm.y))
+
+        # Early stop: robot stuck against a wall
+        if step >= STUCK_WINDOW:
+            oldest = pos_history[-STUCK_WINDOW]
+            dist   = math.hypot(mm.x - oldest[0], mm.y - oldest[1])
+            if dist < STUCK_DIST:
+                break   # zero fitness for remaining steps — fair and fast
+
+    return total
+
+
+def evaluate_coverage(genome: np.ndarray) -> float:
+    reset_robot()
+    total        = 0.0
+    visited      : set[tuple] = set()
+    pos_history  : list[tuple[float, float]] = []
+
+    for step in range(EVAL_STEPS):
+        mm.dt = DT
+        acts  = sensor_activations()
+
+        out      = controller.forward(acts, genome)
+        mm.v     = float(out[0]) * MAX_V
+        mm.omega = float(out[1]) * MAX_OMEGA
+        mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+
+        # Base fitness (never negative)
+        total += floreano_step(mm.v, mm.omega, acts)
+
+        # Coverage bonus — awarded only once per cell
+        key = cell_key(mm.x, mm.y)
+        if key not in visited:
+            visited.add(key)
+            total += COVERAGE_BONUS_PER_CELL
+
+        pos_history.append((mm.x, mm.y))
+
+        # Early stop
+        if step >= STUCK_WINDOW:
+            oldest = pos_history[-STUCK_WINDOW]
+            if math.hypot(mm.x - oldest[0], mm.y - oldest[1]) < STUCK_DIST:
+                break
+
+    return total
+
+
+def evaluate_goal(genome: np.ndarray) -> float:
+    reset_robot()
+    total   = 0.0
+    prev_d  = math.hypot(mm.x - GOAL_X, mm.y - GOAL_Y)
+    pos_history: list[tuple[float, float]] = []
+
+    for step in range(EVAL_STEPS):
+        mm.dt = DT
+        acts  = sensor_activations()
+
+        out      = controller.forward(acts, genome)
+        mm.v     = float(out[0]) * MAX_V
+        mm.omega = float(out[1]) * MAX_OMEGA
+        mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+
+        curr_d = math.hypot(mm.x - GOAL_X, mm.y - GOAL_Y)
+
+        # Progress reward
+        progress = prev_d - curr_d
+        total += progress
+
+        # Small Floreano term so the robot avoids walls while navigating
+        total += 0.2 * floreano_step(mm.v, mm.omega, acts)
+
+        prev_d = curr_d
+
+        # Goal reached
+        if curr_d < GOAL_RADIUS:
+            total += GOAL_BONUS
+            break
+
+        pos_history.append((mm.x, mm.y))
+
+        # Early stop
+        if step >= STUCK_WINDOW:
+            oldest = pos_history[-STUCK_WINDOW]
+            if math.hypot(mm.x - oldest[0], mm.y - oldest[1]) < STUCK_DIST:
+                break
+
+    return total
+
+
+
+MODES = {
+    "floreano": evaluate_floreano,
+    "coverage": evaluate_coverage,
+    "goal": evaluate_goal,
+}
+
+def evaluate(genome: np.ndarray) -> float:
+    return MODES[FITNESS_MODE](genome)
+
+def main() -> None:
+    print("=" * 64)
+    print(f"  Evolutionary Robotics — mode: {FITNESS_MODE.upper()}")
+    print("=" * 64)
+    print(f"  Architecture : {N_SENSORS}→{N_HIDDEN}→{N_OUTPUTS}")
+    print(f"  Genome size  : {controller.genome_size} floats")
+    print(f"  Population   : {POP_SIZE}  ×  {N_GENERATIONS} generations")
+    print(f"  Eval steps   : {EVAL_STEPS}  (DT={DT}s)")
+    if FITNESS_MODE == "goal":
+        print(f"  Goal         : ({GOAL_X}, {GOAL_Y})  radius={GOAL_RADIUS}")
+    print("=" * 64)
+
+    ea = EA(
+        pop_size = POP_SIZE,
+        genome_size = controller.genome_size,
+        mutation_rate = MUTATION_RATE,
+        mutation_scale = MUTATION_SCALE,
+        elite_count = ELITE_COUNT,
+    )
+
+    t0 = time.time()
+
+    for gen in range(N_GENERATIONS):
+        gen_t0    = time.time()
+        fitnesses = [evaluate(g) for g in ea.population]
+        stats     = ea.evolve(fitnesses)
+        elapsed   = time.time() - gen_t0
+
+        print(
+            f"Gen {gen:3d}/{N_GENERATIONS}  "
+            f"best={stats['best']:8.2f}  avg={stats['avg']:7.2f}  "
+            f"worst={stats['worst']:7.2f}  ({elapsed:.1f}s)"
+        )
+
+    total_time = time.time() - t0
+    print(f"\nDone in {total_time:.1f}s  |  all-time best: {ea.best_fitness:.2f}")
+
+    np.save("best_genome.npy", ea.best_genome)
+    with open("fitness_history.json", "w") as fh:
+        json.dump(ea.fitness_history, fh, indent=2)
+
+    print("Saved → best_genome.npy  |  fitness_history.json")
+    print("Run   python watch_best.py   to visualise.")
+
+main()
