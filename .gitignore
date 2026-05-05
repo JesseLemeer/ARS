@@ -1,3 +1,7 @@
 exp.py
 summary_plots/
 __pycache__
+settings.json
+__pycache__/
+*.pyc
+*.pyo

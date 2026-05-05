@@ -3,9 +3,13 @@ import numpy as np
 from ea_tools import NeuralController, EA
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+#Prevent hello message from pygame when training
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import motionmodel as mm
 import map as mp
+from ea_navigation import bootstrap_navigation, make_navigation_state, mapped_sensor_activations, update_navigation
+
 
 FITNESS_MODE = "goal" # options are "floreano","coverage","goal"
 #floreano does the same as in the slides, coverage promotes exploration, goal promotes going from A to B
@@ -18,14 +22,21 @@ MAX_V = 100.0
 MAX_OMEGA = 5.0
 
 POP_SIZE = 20
-N_GENERATIONS = 10
+N_GENERATIONS = 15
 MUTATION_RATE = 0.10
 MUTATION_SCALE = 0.30
 ELITE_COUNT = 2
 
-# Grid cell size for coverage bonus (world units)
-GRID_CELL = 60.0
-COVERAGE_BONUS_PER_CELL = 5.0   # added once per newly visited cell
+#Coverage bonus for exploration
+MAP_COVERAGE_BONUS_PER_CELL = 0.5
+
+#For reference to different goals
+LANDMARKS = [
+        [-300, 0], [100, 100], [-312, 145], [278, -203],
+        [-87, 91], [341, 217], [-156, -74], [203, -189],
+        [-367, 112], [94, 261], [-241, -238], [318, 43],
+        [-300, 100]
+    ]
 
 #goal position, using (-300, 0) – the roundabout.
 GOAL_X, GOAL_Y = 278, -203
@@ -45,16 +56,31 @@ walls, landmarks, landmark_groups = mp.create_map()
 obstacles = walls + landmarks
 
 
-def reset_robot() -> None:
+def get_sensors():
+    wall_readings = mm.get_sensor_readings(walls)
+    landmark_measurements = mm.get_landmark_measurements(landmark_groups)
+    return wall_readings, landmark_measurements
+
+def reset_robot():
     mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
     mm.dt = DT
 
+    nav_state = make_navigation_state(mm.x, mm.y, mm.theta)
+    wall_readings, landmark_measurements = get_sensors()
+    bootstrap_navigation(nav_state, wall_readings, landmark_measurements)
+    return nav_state
 
-def sensor_activations() -> np.ndarray:
-    """Sensor proximity activations in [0, 1].  1 = obstacle at sensor."""
-    readings = mm.get_sensor_readings(walls)
-    acts = np.array([1.0 - r["distance"] / mm.SENSOR_MAX_RANGE for r in readings])
-    return np.clip(acts, 0.0, 1.0)
+
+def update_after_movement(nav_state):
+    wall_readings, landmark_measurements = get_sensors()
+    update_navigation(
+        state=nav_state,
+        wall_sensor_readings=wall_readings,
+        landmark_measurements=landmark_measurements,
+        v=mm.v,
+        omega=mm.omega,
+        dt=mm.dt,
+    )
 
 
 def floreano_step(v_cmd: float, omega_cmd: float, acts: np.ndarray) -> float:
@@ -64,37 +90,33 @@ def floreano_step(v_cmd: float, omega_cmd: float, acts: np.ndarray) -> float:
     return max(0.0, V * (1.0 - math.sqrt(delta)) * (1.0 - i_max))
 
 
-def cell_key(x: float, y: float) -> tuple:
-    return (int(x // GRID_CELL), int(y // GRID_CELL))
-
-
-
 def evaluate_floreano(genome: np.ndarray) -> float:
     """
     Pure Floreano fitness – never negative.
     Episode ends early if robot is stuck (saves compute + ends hopeless runs).
     """
-    reset_robot()
+    nav_state = reset_robot()
     total = 0.0
     pos_history: list[tuple[float, float]] = []
 
     for step in range(EVAL_STEPS):
         mm.dt = DT
-        acts  = sensor_activations()
+        acts  = mapped_sensor_activations(nav_state)
 
         out       = controller.forward(acts, genome)
         mm.v      = float(out[0]) * MAX_V
         mm.omega  = float(out[1]) * MAX_OMEGA
         mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        update_after_movement(nav_state)
 
         total += floreano_step(mm.v, mm.omega, acts)
 
-        pos_history.append((mm.x, mm.y))
+        pos_history.append((nav_state.est_x, nav_state.est_y))
 
         # Early stop: robot stuck against a wall
         if step >= STUCK_WINDOW:
             oldest = pos_history[-STUCK_WINDOW]
-            dist   = math.hypot(mm.x - oldest[0], mm.y - oldest[1])
+            dist   = math.hypot(nav_state.est_x - oldest[0], nav_state.est_y - oldest[1])
             if dist < STUCK_DIST:
                 break   # zero fitness for remaining steps — fair and fast
 
@@ -102,56 +124,58 @@ def evaluate_floreano(genome: np.ndarray) -> float:
 
 
 def evaluate_coverage(genome: np.ndarray) -> float:
-    reset_robot()
+    nav_state = reset_robot()
     total        = 0.0
-    visited      : set[tuple] = set()
     pos_history  : list[tuple[float, float]] = []
+    prev_explored_cells = nav_state.explored_cells
 
     for step in range(EVAL_STEPS):
         mm.dt = DT
-        acts  = sensor_activations()
+        acts  = mapped_sensor_activations(nav_state)
 
         out      = controller.forward(acts, genome)
         mm.v     = float(out[0]) * MAX_V
         mm.omega = float(out[1]) * MAX_OMEGA
         mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        update_after_movement(nav_state)
 
         # Base fitness (never negative)
         total += floreano_step(mm.v, mm.omega, acts)
 
-        # Coverage bonus — awarded only once per cell
-        key = cell_key(mm.x, mm.y)
-        if key not in visited:
-            visited.add(key)
-            total += COVERAGE_BONUS_PER_CELL
+        #Bonus for newly explored grid units
+        newly_explored = max(0, nav_state.explored_cells - prev_explored_cells)
+        total += MAP_COVERAGE_BONUS_PER_CELL * newly_explored
+        #Keep track of explored cells
+        prev_explored_cells = max(prev_explored_cells, nav_state.explored_cells)
 
-        pos_history.append((mm.x, mm.y))
+        pos_history.append((nav_state.est_x, nav_state.est_y))
 
         # Early stop
         if step >= STUCK_WINDOW:
             oldest = pos_history[-STUCK_WINDOW]
-            if math.hypot(mm.x - oldest[0], mm.y - oldest[1]) < STUCK_DIST:
+            if math.hypot(nav_state.est_x - oldest[0], nav_state.est_y - oldest[1]) < STUCK_DIST:
                 break
 
     return total
 
 
 def evaluate_goal(genome: np.ndarray) -> float:
-    reset_robot()
+    nav_state = reset_robot()
     total   = 0.0
-    prev_d  = math.hypot(mm.x - GOAL_X, mm.y - GOAL_Y)
+    prev_d  = math.hypot(nav_state.est_x - GOAL_X, nav_state.est_y - GOAL_Y)
     pos_history: list[tuple[float, float]] = []
 
     for step in range(EVAL_STEPS):
         mm.dt = DT
-        acts  = sensor_activations()
+        acts  = mapped_sensor_activations(nav_state)
 
         out      = controller.forward(acts, genome)
         mm.v     = float(out[0]) * MAX_V
         mm.omega = float(out[1]) * MAX_OMEGA
         mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        update_after_movement(nav_state)
 
-        curr_d = math.hypot(mm.x - GOAL_X, mm.y - GOAL_Y)
+        curr_d = math.hypot(nav_state.est_x - GOAL_X, nav_state.est_y - GOAL_Y)
 
         # Progress reward
         progress = prev_d - curr_d
@@ -162,17 +186,17 @@ def evaluate_goal(genome: np.ndarray) -> float:
 
         prev_d = curr_d
 
-        # Goal reached
+        # Goal reached according to the localized pose estimate
         if curr_d < GOAL_RADIUS:
             total += GOAL_BONUS
             break
 
-        pos_history.append((mm.x, mm.y))
+        pos_history.append((nav_state.est_x, nav_state.est_y))
 
         # Early stop
         if step >= STUCK_WINDOW:
             oldest = pos_history[-STUCK_WINDOW]
-            if math.hypot(mm.x - oldest[0], mm.y - oldest[1]) < STUCK_DIST:
+            if math.hypot(nav_state.est_x - oldest[0], nav_state.est_y - oldest[1]) < STUCK_DIST:
                 break
 
     return total
@@ -232,4 +256,5 @@ def main() -> None:
     print("Saved → best_genome.npy  |  fitness_history.json")
     print("Run   python watch_best.py   to visualise.")
 
-main()
+if __name__ == "__main__":
+    main()

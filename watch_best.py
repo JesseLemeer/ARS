@@ -5,7 +5,8 @@ import pygame
 
 import motionmodel as mm
 import map as mp
-from ea_tools import NeuralController, EA
+from ea_tools import NeuralController
+from ea_navigation import bootstrap_navigation, make_navigation_state, mapped_sensor_activations, update_navigation, raw_sensor_activations
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 GENOME_FILE  = sys.argv[1] if len(sys.argv) > 1 else "best_genome.npy"
@@ -29,13 +30,12 @@ BLUE       = ( 70, 130, 180)
 GREEN      = (  0, 200,   0)
 RED        = (200,   0,   0)
 ORANGE     = (255,  77,   0)
-LIGHT_GRAY = (210, 210, 230)
 
 
-def sensor_activations(walls) -> np.ndarray:
-    readings = mm.get_sensor_readings(walls)
-    acts = np.array([1.0 - r["distance"] / mm.SENSOR_MAX_RANGE for r in readings])
-    return np.clip(acts, 0.0, 1.0)
+def get_sensors(walls, landmark_groups):
+    wall_readings = mm.get_sensor_readings(walls)
+    landmark_measurements = mm.get_landmark_measurements(landmark_groups)
+    return wall_readings, landmark_measurements
 
 
 def main():
@@ -57,12 +57,21 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("Best Evolved Controller")
-    clock  = pygame.font.SysFont(None, 20)
     font   = pygame.font.SysFont(None, 20)
 
     # ── Reset robot ────────────────────────────────────────────────────────────
-    mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
+    def reset_robot():
+        mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
+        mm.dt = DT
+
+        nav_state = make_navigation_state(mm.x, mm.y, mm.theta)
+        wall_readings, landmark_measurements = get_sensors(walls, landmark_groups)
+        bootstrap_navigation(nav_state, wall_readings, landmark_measurements)
+        return nav_state
+
+    nav_state = reset_robot()
     trail: list[tuple[float, float]] = []
+    est_trail: list[tuple[float, float]] = []
 
     step          = 0
     total_fitness = 0.0
@@ -77,8 +86,9 @@ def main():
                 running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:         # R → reset robot
-                    mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
+                    nav_state = reset_robot()
                     trail.clear()
+                    est_trail.clear()
                     step = 0
                     total_fitness = 0.0
                     collisions    = 0
@@ -88,11 +98,21 @@ def main():
         mm.dt = DT
 
         # Sense → think → act
-        acts      = sensor_activations(walls)
+        acts      = mapped_sensor_activations(nav_state)
         out       = controller.forward(acts, genome)
         mm.v      = float(out[0]) * MAX_V
         mm.omega  = float(out[1]) * MAX_OMEGA
         hit       = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        wall_readings, landmark_measurements = get_sensors(walls, landmark_groups)
+        update_navigation(
+            state=nav_state,
+            wall_sensor_readings=wall_readings,
+            landmark_measurements=landmark_measurements,
+            v=mm.v,
+            omega=mm.omega,
+            dt=mm.dt,
+        )
+        raw_acts = raw_sensor_activations(wall_readings)
 
         if hit:
             collisions += 1
@@ -109,9 +129,21 @@ def main():
         trail.append((mm.x, mm.y))
         if len(trail) > TRAIL_LEN:
             trail.pop(0)
+        est_trail.append((nav_state.est_x, nav_state.est_y))
+        if len(est_trail) > TRAIL_LEN:
+            est_trail.pop(0)
 
         # ── Draw ───────────────────────────────────────────────────────────────
         screen.fill(WHITE)
+
+        nav_state.grid.draw(
+            surface=screen,
+            world_to_screen_fn=mm.world_to_screen,
+            screen_width=SCREEN_W,
+            screen_height=SCREEN_H,
+            robot_x=mm.x,
+            robot_y=mm.y,
+        )
 
         # Walls & landmarks
         for seg in obstacles:
@@ -121,17 +153,20 @@ def main():
 
         # Sensor rays
         sx, sy = mm.world_to_screen(mm.x, mm.y, SCREEN_W, SCREEN_H)
-        for i, r in enumerate(mm.get_sensor_readings(walls)):
+        for i, r in enumerate(wall_readings):
             hx, hy = r["hit_point"]
-            hs, _ = mm.world_to_screen(hx, hy, SCREEN_W, SCREEN_H), 0
             hs     = mm.world_to_screen(hx, hy, SCREEN_W, SCREEN_H)
-            alpha  = int(acts[i] * 180)        # brighter = closer obstacle
+            alpha  = int(raw_acts[i] * 180)        # brighter = closer obstacle
             pygame.draw.line(screen, (alpha, alpha, 200), (sx, sy), hs, 1)
 
         # Trail
         if len(trail) >= 2:
             pts = [mm.world_to_screen(px, py, SCREEN_W, SCREEN_H) for px, py in trail]
             pygame.draw.lines(screen, BLUE, False, pts, 2)
+        if len(est_trail) >= 2:
+            pts = [mm.world_to_screen(px, py, SCREEN_W, SCREEN_H) for px, py in est_trail]
+            for i in range(0, len(pts) - 1, 8):
+                pygame.draw.line(screen, ORANGE, pts[i], pts[min(i + 4, len(pts) - 1)], 2)
 
         # Robot body
         color = RED if hit else GREEN
@@ -146,13 +181,35 @@ def main():
         fsx, fsy = mm.world_to_screen(fx, fy, SCREEN_W, SCREEN_H)
         pygame.draw.line(screen, BLACK, (sx, sy), (fsx, fsy), 2)
 
+        #Estimated pose from EKF-SLAM
+        est_sx, est_sy = mm.world_to_screen(nav_state.est_x, nav_state.est_y, SCREEN_W, SCREEN_H)
+        est_corners = [
+            mm.world_to_screen(px, py, SCREEN_W, SCREEN_H)
+            for px, py in mm.get_robot_corners_at(
+                nav_state.est_x,
+                nav_state.est_y,
+                nav_state.est_theta,
+                CAR_LENGTH,
+                CAR_WIDTH,
+            )
+        ]
+        pygame.draw.polygon(screen, ORANGE, est_corners, 2)
+        est_fx = nav_state.est_x + (CAR_LENGTH / 2) * math.cos(nav_state.est_theta)
+        est_fy = nav_state.est_y + (CAR_LENGTH / 2) * math.sin(nav_state.est_theta)
+        est_fsx, est_fsy = mm.world_to_screen(est_fx, est_fy, SCREEN_W, SCREEN_H)
+        pygame.draw.line(screen, ORANGE, (est_sx, est_sy), (est_fsx, est_fsy), 2)
+
         # HUD
+        pose_error = math.hypot(mm.x - nav_state.est_x, mm.y - nav_state.est_y)
         hud = [
-            f"Evolved controller  |  press R to reset",
+            f"Evolved controller  |  mapped input  |  press R to reset",
             f"Step: {step:5d}   Collisions: {collisions}",
             f"v={mm.v:6.1f}  ω={mm.omega:5.2f}",
             f"Fitness (step): {phi:.4f}   Total: {total_fitness:.1f}",
-            f"Max sensor act: {i_max:.3f}",
+            f"True: x={mm.x:7.1f} y={mm.y:7.1f} θ={math.degrees(mm.theta) % 360:6.1f}°",
+            f"SLAM: x={nav_state.est_x:7.1f} y={nav_state.est_y:7.1f} θ={math.degrees(nav_state.est_theta) % 360:6.1f}°",
+            f"Pose error: {pose_error:.1f}   Explored cells: {nav_state.explored_cells}",
+            f"Landmarks in SLAM: {len(nav_state.landmark_index)}   Max mapped act: {i_max:.3f}",
         ]
         for row, line in enumerate(hud):
             surf = font.render(line, True, (20, 20, 20))
