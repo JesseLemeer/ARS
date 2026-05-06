@@ -28,7 +28,9 @@ MUTATION_SCALE = 0.30
 ELITE_COUNT = 2
 
 #Coverage bonus for exploration
-MAP_COVERAGE_BONUS_PER_CELL = 0.5
+GRID_CELL = 60.0
+COVERAGE_BONUS_PER_CELL = 5.0
+MAP_COVERAGE_BONUS_PER_CELL = 0.25
 
 #For reference to different goals
 LANDMARKS = [
@@ -90,6 +92,10 @@ def floreano_step(v_cmd: float, omega_cmd: float, acts: np.ndarray) -> float:
     return max(0.0, V * (1.0 - math.sqrt(delta)) * (1.0 - i_max))
 
 
+def cell_key(x: float, y: float) -> tuple:
+    return (int(x // GRID_CELL), int(y // GRID_CELL))
+
+
 def evaluate_floreano(genome: np.ndarray) -> float:
     """
     Pure Floreano fitness – never negative.
@@ -127,6 +133,7 @@ def evaluate_coverage(genome: np.ndarray) -> float:
     nav_state = reset_robot()
     total        = 0.0
     pos_history  : list[tuple[float, float]] = []
+    visited_cells: set[tuple] = set()
     prev_explored_cells = nav_state.explored_cells
 
     for step in range(EVAL_STEPS):
@@ -141,6 +148,12 @@ def evaluate_coverage(genome: np.ndarray) -> float:
 
         # Base fitness (never negative)
         total += floreano_step(mm.v, mm.omega, acts)
+
+        #Bonus for entering a new area, based on the estimated pose
+        current_cell = cell_key(nav_state.est_x, nav_state.est_y)
+        if current_cell not in visited_cells:
+            visited_cells.add(current_cell)
+            total += COVERAGE_BONUS_PER_CELL
 
         #Bonus for newly explored grid units
         newly_explored = max(0, nav_state.explored_cells - prev_explored_cells)
