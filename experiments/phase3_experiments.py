@@ -2,10 +2,21 @@ import pygame
 import sys
 import math
 import os
+from pathlib import Path
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+BASE_DIR = Path(__file__).resolve().parent
+
+try:
+    from experiments._path_setup import ensure_project_root_on_path
+except ModuleNotFoundError:
+    from _path_setup import ensure_project_root_on_path
+
+ensure_project_root_on_path(__file__)
 
 import motionmodel as mm
 import map as mp
@@ -43,11 +54,11 @@ START_X, START_Y, START_THETA = -300.0, 50.0, 0.0
 
 # Set MODE = "RECORD" to drive and save a path (press S to save), then switch to "REPLAY".
 MODE            = "REPLAY"
-TRAJECTORY_FILE = "trajectory.npy"
+TRAJECTORY_FILE = str(BASE_DIR / "trajectory.npy")
 RECORD_PATH: list = []
 REPLAY_INDEX: int  = 0
 
-SUMMARY_DIR = "phase3_summary_plots"
+SUMMARY_DIR = str(BASE_DIR / "phase3_summary_plots")
 
 
 # KF DEFAULTS  (same as phase 2)
@@ -230,7 +241,7 @@ EXPERIMENTS = [
 
 
 
-SLAM_SUMMARY_DIR = "phase3_slam_plots"
+SLAM_SUMMARY_DIR = str(BASE_DIR / "phase3_slam_plots")
 
 # ---------------------------------------------------------------------------
 # EKF SLAM EXPERIMENT DEFINITIONS

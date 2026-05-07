@@ -2,9 +2,20 @@ import pygame
 import sys
 import math
 import os
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse as MplEllipse
+
+BASE_DIR = Path(__file__).resolve().parent
+
+try:
+    from experiments._path_setup import ensure_project_root_on_path
+except ModuleNotFoundError:
+    from _path_setup import ensure_project_root_on_path
+
+ensure_project_root_on_path(__file__)
 
 import motionmodel as mm
 import map as mp
@@ -43,11 +54,11 @@ START_X, START_Y, START_THETA = -300.0, 50.0, 0.0
 #change to "REPLAY" to see the robot driving around in different experiments with the saved trajectory
 #if MODE = "REPLAY", and there is no trajectory file, it will change mode to RECORD, save with S
 MODE = "REPLAY"   
-TRAJECTORY_FILE = "trajectory.npy"
+TRAJECTORY_FILE = str(BASE_DIR / "trajectory.npy")
 RECORD_PATH = []
 REPLAY_INDEX = 0
 
-SUMMARY_DIR = "summary_plots"
+SUMMARY_DIR = str(BASE_DIR / "summary_plots")
 
 # Used by summary plots only
 LANDMARK_CENTRES = [

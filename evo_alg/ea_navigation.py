@@ -1,8 +1,13 @@
 import math
-import os
-from dataclasses import dataclass
 
 import numpy as np
+
+try:
+    from evo_alg._path_setup import ensure_project_root_on_path
+except ModuleNotFoundError:
+    from _path_setup import ensure_project_root_on_path
+
+ensure_project_root_on_path(__file__)
 
 import filter as kf
 import motionmodel as mm
@@ -31,6 +36,11 @@ DEFAULT_SLAM = dict(
     sigma_sq_Rtheta=math.radians(2.0) ** 2,
     sigma_sq_R=4.0,
     sigma_sq_phi=math.radians(3.0) ** 2,
+)
+
+GOAL_MAX_DISTANCE = math.hypot(
+    DEFAULT_GRID["x_max"] - DEFAULT_GRID["x_min"],
+    DEFAULT_GRID["y_max"] - DEFAULT_GRID["y_min"],
 )
 
 #Thresholds for determining if a cell is occupied or explored based on log-odds values
@@ -218,3 +228,48 @@ def mapped_sensor_activations(state, sensor_angles_deg=None, max_range=None):
 
     activations = np.array(activations, dtype=float)
     return np.clip(activations, 0.0, 1.0)
+
+
+#Convert a target position into activations for distance (0, 1) and the relative bearing (-1, 1) for controller inputs
+def goal_activations(state, goal_x, goal_y, max_distance=None):
+    if max_distance is None:
+        max_distance = GOAL_MAX_DISTANCE
+
+    delta_x = goal_x - state.est_x
+    delta_y = goal_y - state.est_y
+    distance = math.hypot(delta_x, delta_y)
+
+    if distance < 1e-9:
+        relative_bearing = 0.0
+    else:
+        goal_bearing = math.atan2(delta_y, delta_x)
+        relative_bearing = mm.normalize_angle(goal_bearing - state.est_theta)
+
+    distance_input = np.clip(distance / max_distance, 0.0, 1.0)
+    return np.array(
+        [
+            distance_input,
+            math.sin(relative_bearing),
+            math.cos(relative_bearing),
+        ],
+        dtype=float,
+    )
+
+
+#Combine mapped obstacle inputs with local-frame goal inputs
+def navigation_inputs(state, goal_x, goal_y, sensor_angles_deg=None, sensor_max_range=None, 
+                      goal_max_distance=None, sensor_activations=None):
+    if sensor_activations is None:
+        sensor_activations = mapped_sensor_activations(
+            state,
+            sensor_angles_deg=sensor_angles_deg,
+            max_range=sensor_max_range,
+        )
+
+    goal_inputs = goal_activations(
+        state,
+        goal_x,
+        goal_y,
+        max_distance=goal_max_distance,
+    )
+    return np.concatenate([sensor_activations, goal_inputs])
