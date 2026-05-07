@@ -61,7 +61,9 @@ def main():
 
     # ── Reset robot ────────────────────────────────────────────────────────────
     def reset_robot():
-        mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
+        mm.x = 100
+        mm.y = -100
+        mm.theta = mm.v = mm.omega = 0.0
         mm.dt = DT
 
         nav_state = make_navigation_state(mm.x, mm.y, mm.theta)

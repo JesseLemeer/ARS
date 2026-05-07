@@ -11,7 +11,7 @@ import map as mp
 from ea_navigation import bootstrap_navigation, make_navigation_state, mapped_sensor_activations, update_navigation
 
 
-FITNESS_MODE = "goal" # options are "floreano","coverage","goal"
+FITNESS_MODE = "combined" # options are "floreano","coverage","goal"
 #floreano does the same as in the slides, coverage promotes exploration, goal promotes going from A to B
 
 EVAL_STEPS = 800
@@ -64,7 +64,9 @@ def get_sensors():
     return wall_readings, landmark_measurements
 
 def reset_robot():
-    mm.x = mm.y = mm.theta = mm.v = mm.omega = 0.0
+    mm.x = 100
+    mm.y = -100 
+    mm.theta = mm.v = mm.omega = 0.0
     mm.dt = DT
 
     nav_state = make_navigation_state(mm.x, mm.y, mm.theta)
@@ -214,12 +216,64 @@ def evaluate_goal(genome: np.ndarray) -> float:
 
     return total
 
+def evaluate_combined(genome: np.ndarray, goal_x=GOAL_X, goal_y=GOAL_Y) -> float:
+    a = 0.4  # coverage weight
+    b = 0.4  # floreano weight
+    c = 0.2  # goal weight
 
+    nav_state = reset_robot()
+    total = 0.0
+    prev_d = math.hypot(nav_state.est_x - goal_x, nav_state.est_y - goal_y)
+    pos_history: list[tuple[float, float]] = []
+    visited_cells: set[tuple] = set()
+    prev_explored_cells = nav_state.explored_cells
 
+    for step in range(EVAL_STEPS):
+        mm.dt = DT
+        acts = mapped_sensor_activations(nav_state)
+
+        out      = controller.forward(acts, genome)
+        mm.v     = float(out[0]) * MAX_V
+        mm.omega = float(out[1]) * MAX_OMEGA
+        mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        update_after_movement(nav_state)
+
+        floreano_score = floreano_step(mm.v, mm.omega, acts)
+
+        # Coverage bonus
+        current_cell = cell_key(nav_state.est_x, nav_state.est_y)
+        coverage_score = floreano_score
+        if current_cell not in visited_cells:
+            visited_cells.add(current_cell)
+            coverage_score += COVERAGE_BONUS_PER_CELL
+        newly_explored = max(0, nav_state.explored_cells - prev_explored_cells)
+        coverage_score += MAP_COVERAGE_BONUS_PER_CELL * newly_explored
+        prev_explored_cells = max(prev_explored_cells, nav_state.explored_cells)
+
+        # Goal progress
+        curr_d = math.hypot(nav_state.est_x - goal_x, nav_state.est_y - goal_y)
+        goal_score = (prev_d - curr_d) + 0.2 * floreano_score
+        prev_d = curr_d
+
+        total += a * coverage_score + b * floreano_score + c * goal_score
+
+        pos_history.append((nav_state.est_x, nav_state.est_y))
+
+        if curr_d < GOAL_RADIUS:
+            total += c * GOAL_BONUS
+            break
+
+        if step >= STUCK_WINDOW:
+            oldest = pos_history[-STUCK_WINDOW]
+            if math.hypot(nav_state.est_x - oldest[0], nav_state.est_y - oldest[1]) < STUCK_DIST:
+                break
+
+    return total
 MODES = {
     "floreano": evaluate_floreano,
     "coverage": evaluate_coverage,
     "goal": evaluate_goal,
+    "combined": evaluate_combined,
 }
 
 def evaluate(genome: np.ndarray) -> float:
