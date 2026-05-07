@@ -1,15 +1,29 @@
 import sys
 import math
+from pathlib import Path
+
 import numpy as np
 import pygame
 
+BASE_DIR = Path(__file__).resolve().parent
+
+try:
+    from evo_alg._path_setup import ensure_project_root_on_path
+except ModuleNotFoundError:
+    from _path_setup import ensure_project_root_on_path
+
+ensure_project_root_on_path(__file__)
+
 import motionmodel as mm
 import map as mp
-from ea_tools import NeuralController
-from ea_navigation import bootstrap_navigation, make_navigation_state, mapped_sensor_activations, update_navigation, raw_sensor_activations
+from evo_alg.ea import GOAL_RADIUS, GOAL_X as DEFAULT_GOAL_X, GOAL_Y as DEFAULT_GOAL_Y
+from evo_alg.ea_tools import NeuralController
+from evo_alg.ea_navigation import bootstrap_navigation, make_navigation_state, mapped_sensor_activations, navigation_inputs, update_navigation, raw_sensor_activations
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-GENOME_FILE  = sys.argv[1] if len(sys.argv) > 1 else "best_genome.npy"
+GENOME_FILE  = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome.npy")
+GOAL_X = float(sys.argv[2]) if len(sys.argv) > 3 else DEFAULT_GOAL_X
+GOAL_Y = float(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_GOAL_Y
 DT           = 1 / 60      # match 60-fps display
 CAR_LENGTH   = 24
 CAR_WIDTH    = 14
@@ -18,6 +32,8 @@ MAX_OMEGA    = 5.0
 TRAIL_LEN    = 300
 
 N_SENSORS = len(mm.SENSOR_ANGLES_DEG)
+N_GOAL_INPUTS = 3
+N_INPUTS = N_SENSORS + N_GOAL_INPUTS
 N_HIDDEN  = 10
 N_OUTPUTS = 2
 
@@ -40,14 +56,13 @@ def get_sensors(walls, landmark_groups):
 
 def main():
     # ── Load genome ────────────────────────────────────────────────────────────
+    controller = NeuralController(N_INPUTS, N_HIDDEN, N_OUTPUTS)
     try:
         genome = np.load(GENOME_FILE)
         print(f"Loaded genome from {GENOME_FILE}  ({len(genome)} genes)")
     except FileNotFoundError:
-        print(f"ERROR: {GENOME_FILE} not found. Run  python main_ea.py  first.")
+        print(f"ERROR: {GENOME_FILE} not found. Run python -m evo_alg.ea first.")
         sys.exit(1)
-
-    controller = NeuralController(N_SENSORS, N_HIDDEN, N_OUTPUTS)
 
     # ── Map ────────────────────────────────────────────────────────────────────
     walls, landmarks, landmark_groups = mp.create_map()
@@ -100,7 +115,8 @@ def main():
         mm.dt = DT
 
         # Sense → think → act
-        acts      = mapped_sensor_activations(nav_state)
+        sensor_acts = mapped_sensor_activations(nav_state)
+        acts = navigation_inputs(nav_state, GOAL_X, GOAL_Y, sensor_activations=sensor_acts)
         out       = controller.forward(acts, genome)
         mm.v      = float(out[0]) * MAX_V
         mm.omega  = float(out[1]) * MAX_OMEGA
@@ -122,7 +138,7 @@ def main():
         # Fitness bookkeeping
         V     = abs(mm.v)    / MAX_V
         delta = abs(mm.omega) / MAX_OMEGA
-        i_max = float(np.max(acts))
+        i_max = float(np.max(sensor_acts))
         phi   = max(0.0, V * (1.0 - math.sqrt(delta)) * (1.0 - i_max))
         total_fitness += phi
         step  += 1
@@ -160,6 +176,12 @@ def main():
             hs     = mm.world_to_screen(hx, hy, SCREEN_W, SCREEN_H)
             alpha  = int(raw_acts[i] * 180)        # brighter = closer obstacle
             pygame.draw.line(screen, (alpha, alpha, 200), (sx, sy), hs, 1)
+
+        #Mark goal
+        goal_sx, goal_sy = mm.world_to_screen(GOAL_X, GOAL_Y, SCREEN_W, SCREEN_H)
+        pygame.draw.circle(screen, RED, (goal_sx, goal_sy), int(GOAL_RADIUS), 2)
+        pygame.draw.line(screen, RED, (goal_sx - int(GOAL_RADIUS), goal_sy), (goal_sx + int(GOAL_RADIUS), goal_sy), 2)
+        pygame.draw.line(screen, RED, (goal_sx, goal_sy - int(GOAL_RADIUS)), (goal_sx, goal_sy + int(GOAL_RADIUS)), 2)
 
         # Trail
         if len(trail) >= 2:
@@ -203,11 +225,13 @@ def main():
 
         # HUD
         pose_error = math.hypot(mm.x - nav_state.est_x, mm.y - nav_state.est_y)
+        goal_distance = math.hypot(nav_state.est_x - GOAL_X, nav_state.est_y - GOAL_Y)
         hud = [
             f"Evolved controller  |  mapped input  |  press R to reset",
             f"Step: {step:5d}   Collisions: {collisions}",
             f"v={mm.v:6.1f}  ω={mm.omega:5.2f}",
             f"Fitness (step): {phi:.4f}   Total: {total_fitness:.1f}",
+            f"Goal: x={GOAL_X:7.1f} y={GOAL_Y:7.1f}   distance={goal_distance:.1f}",
             f"True: x={mm.x:7.1f} y={mm.y:7.1f} θ={math.degrees(mm.theta) % 360:6.1f}°",
             f"SLAM: x={nav_state.est_x:7.1f} y={nav_state.est_y:7.1f} θ={math.degrees(nav_state.est_theta) % 360:6.1f}°",
             f"Pose error: {pose_error:.1f}   Explored cells: {nav_state.explored_cells}",

@@ -4,7 +4,7 @@ import numpy as np
 
 
 class NeuralController:
-    def __init__(self, n_inputs: int = 36, n_hidden: int = 10, n_outputs: int = 2):
+    def __init__(self, n_inputs: int = 15, n_hidden: int = 10, n_outputs: int = 2):
         self.n_inputs = n_inputs
         self.n_hidden = n_hidden
         self.n_outputs = n_outputs
@@ -36,7 +36,7 @@ class EA:
     def __init__(
         self,
         pop_size: int   = 20,
-        genome_size:int   = 392,
+        genome_size:int   = 182,
         mutation_rate: float = 0.10,# probability a gene is perturbed
         mutation_scale: float = 0.30,# std-dev of Gaussian perturbation
         crossover_rate: float = 0.70, # probability of crossover vs. clone

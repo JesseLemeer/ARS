@@ -1,8 +1,20 @@
 # experiment.py
 import math
+from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+BASE_DIR = Path(__file__).resolve().parent
+
+try:
+    from experiments._path_setup import ensure_project_root_on_path
+except ModuleNotFoundError:
+    from _path_setup import ensure_project_root_on_path
+
+ensure_project_root_on_path(__file__)
+
 import motionmodel as mm_module
 
 FIXED_DT = 1 / 60
@@ -123,8 +135,9 @@ def plot_results(linear_results: dict, angular_results: dict):
         ax2.text(i, d + 0.002, f"{d:.3f}°", ha="center", va="bottom", fontsize=8)
 
     plt.tight_layout()
-    plt.savefig("precision_experiment.png", dpi=150)
-    print("\nPlot saved to precision_experiment.png")
+    out_path = BASE_DIR / "precision_experiment.png"
+    plt.savefig(out_path, dpi=150)
+    print(f"\nPlot saved to {out_path}")
 
 
 print(f"dt = {FIXED_DT:.6f} s (locked 60 fps)\n")

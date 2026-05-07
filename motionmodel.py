@@ -7,7 +7,7 @@ v = 0.0
 omega = 0.0
 dt = 0.0
 
-SENSOR_ANGLES_DEG = [i * 10 for i in range(36)]
+SENSOR_ANGLES_DEG = [i * 30 for i in range(12)]
 SENSOR_MAX_RANGE = 100.0
 LANDMARK_SENSOR_RANGE = 150.0
 
