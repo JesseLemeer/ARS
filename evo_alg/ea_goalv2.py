@@ -1,15 +1,17 @@
 import os
 
-# Headless pygame — must be set BEFORE motionmodel imports pygame
-os.environ["SDL_VIDEODRIVER"] = "dummy"
-os.environ["SDL_AUDIODRIVER"] = "dummy"
-os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
+# Must be set BEFORE motionmodel imports pygame — but only when running headless
+if __name__ == "__main__":
+    os.environ["SDL_VIDEODRIVER"] = "dummy"
+    os.environ["SDL_AUDIODRIVER"] = "dummy"
+    os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 import collections
 import json
 import math
 import sys
 import time
+from multiprocessing import Pool, cpu_count
 from pathlib import Path
 
 import numpy as np
@@ -47,26 +49,27 @@ CURRICULUM_GOALS = [
     (278.0, -203.0),
     (318.0,   43.0),
 ]
-INIT_POOL_SIZE  = 2
+INIT_POOL_SIZE  = 1
 POOL_GROW_EVERY = 12
 POOL_MASTER_THR = 3500
 
-GOAL_X, GOAL_Y = CURRICULUM_GOALS[0]
+GOAL_X, GOAL_Y = CURRICULUM_GOALS[1]
 
 GOAL_RADIUS    = 12.0
 EVAL_STEPS     = 1200
 MAX_STAGNATION = 300
 
-GOAL_BONUS = 5000.0   # awarded once if goal reached
-GOAL_TIME_BONUS = 5000.0 # additional, promotes getting to the goal quick (scaled by time taken)
-PROGRESS_GAIN  = 5.0 # per unit of best-distance improvement
-SMOOTH_TERMINAL = 100.0  
+GOAL_BONUS      = 5000.0
+GOAL_TIME_BONUS = 5000.0
+PROGRESS_GAIN   = 5.0
+HEADING_GAIN    = 0.5    # per step: reward for velocity component pointing toward goal
+SMOOTH_TERMINAL = 100.0
 CLOSENESS_BONUS = 300.0
 COLLISION_PENALTY = 50.0
 COLLISION_TERMINATE = 50
 TERMINATE_PENALTY = 500.0
 
-NOVELTY_WEIGHT = 1.5
+NOVELTY_WEIGHT = 0.3
 NOVELTY_K = 15
 ARCHIVE_CAP = 300
 ARCHIVE_PROB = 0.05
@@ -74,9 +77,9 @@ ARCHIVE_PROB = 0.05
 POP_SIZE = 50
 N_GENERATIONS = 100
 K_EVAL_GOALS = 3
-MUTATION_RATE = 0.12
-MUTATION_SCALE = 0.20
-ELITE_COUNT = 4
+MUTATION_RATE = 0.05
+MUTATION_SCALE = 0.25
+ELITE_COUNT = 2
 CROSSOVER_RATE = 0.70
 TOURNAMENT_K = 3
 #neural controller with 15 inputs, 8 hidden states, 2 outputs (v and omega)
@@ -88,9 +91,14 @@ WALLFOLLOW_TRIGGER = 4
 WALLFOLLOW_WINDOW = 25
 WALLFOLLOW_STEPS = 80
 
-# World objects, created once
+# World objects, created once. Each subprocess will re-create these on import
+# (separate process memory) — that's fine and the cost is negligible.
 walls, landmarks, landmark_groups = mp.create_map()
 obstacles = walls + landmarks
+
+# Set to None or 1 if you want to disable parallelism for debugging.
+N_WORKERS = min(cpu_count(), POP_SIZE)
+
 
 def sensor_acts(wall_readings):
     return np.clip(np.array([1.0 - r["distance"] / mm.SENSOR_MAX_RANGE for r in wall_readings]),0.0, 1.0)
@@ -145,7 +153,7 @@ def evaluate_episode(genome, controller, goal_x, goal_y):
             mm.omega = float(out[1]) * MAX_OMEGA
 
         hit = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
-        wall_follower.tick(hit)
+        wall_follower.tick(hit, mm.x, mm.y)
 
         eff_v = 0.0 if hit else mm.v
         eff_omega = 0.0 if hit else mm.omega
@@ -175,6 +183,12 @@ def evaluate_episode(genome, controller, goal_x, goal_y):
             objective += PROGRESS_GAIN * (best_d - curr_d)
             best_d = curr_d
             last_progress = step
+
+        # Per-step reward for heading toward the goal
+        if curr_d > GOAL_RADIUS:
+            goal_dir = math.atan2(goal_y - mm.y, goal_x - mm.x)
+            align = math.cos(mm.theta - goal_dir)
+            objective += HEADING_GAIN * max(0.0, align) * abs(mm.v) / MAX_V
 
         if step - last_progress > MAX_STAGNATION:
             steps_used = step + 1
@@ -206,12 +220,21 @@ def evaluate_slate(genome, controller, slate):
         obj, end = evaluate_episode(genome, controller, gx, gy)
         objs.append(obj)
         ends.append(end)
-    return float(np.mean(objs)), np.mean(ends, axis=0)
+    return float(np.min(objs)), np.mean(ends, axis=0)
+
+
+def _eval_worker(args):
+    """Pool worker. Must be module-level so the Pool can pickle it.
+    Each subprocess has its own copy of motionmodel state, so concurrent
+    workers don't trample mm.x / mm.y / etc."""
+    genome, slate = args
+    controller = ffc(N_INPUTS, N_HIDDEN, N_OUTPUTS)
+    return evaluate_slate(genome, controller, slate)
 
 
 def main():
     controller = ffc(N_INPUTS, N_HIDDEN, N_OUTPUTS)
-    
+
     ea = EA(POP_SIZE, controller.genome_size, controller.random_genome,
             mutation_rate=MUTATION_RATE, mutation_scale=MUTATION_SCALE,
             elite_count=ELITE_COUNT, crossover_rate=CROSSOVER_RATE,
@@ -220,49 +243,53 @@ def main():
     curriculum = crc(CURRICULUM_GOALS, INIT_POOL_SIZE,
                             POOL_GROW_EVERY, POOL_MASTER_THR)
 
+    print(f"Parallel evaluation: {N_WORKERS} workers (detected {cpu_count()} cores)")
+
     t0 = time.time()
-    for gen in range(N_GENERATIONS):
-        gen_t0 = time.time()
-        slate  = curriculum.slate(K_EVAL_GOALS)
+    with Pool(processes=N_WORKERS) as pool:
+        for gen in range(N_GENERATIONS):
+            gen_t0 = time.time()
+            slate  = curriculum.slate(K_EVAL_GOALS)
 
-        objectives, behaviours = [], []
-        for genome in ea.population:
-            obj, beh = evaluate_slate(genome, controller, slate)
-            objectives.append(obj)
-            behaviours.append(beh)
+            # Parallel fitness evaluation — replaces the per-genome for loop.
+            # Each worker gets (genome, slate) and returns (objective, endpoint).
+            worker_args = [(g, slate) for g in ea.population]
+            results = pool.map(_eval_worker, worker_args)
+            objectives = [r[0] for r in results]
+            behaviours = [r[1] for r in results]
 
-        novelties = [archive.novelty(b, behaviours) for b in behaviours]
+            # Novelty + EA step run in the main process (cheap relative to sim).
+            novelties = [archive.novelty(b, behaviours) for b in behaviours]
+            combined = [o + NOVELTY_WEIGHT * n for o, n in zip(objectives, novelties)]
 
-        combined = [o + NOVELTY_WEIGHT * n for o, n in zip(objectives, novelties)]
+            for b in behaviours:
+                archive.maybe_add(b)
 
-        for b in behaviours:
-            archive.maybe_add(b)
+            stats = ea.step(objectives, combined)
+            grew  = curriculum.maybe_grow(stats["gen_obj"])
 
-        stats = ea.step(objectives, combined)
-        grew  = curriculum.maybe_grow(stats["gen_obj"])
-
-        elapsed = time.time() - gen_t0
-        slate_str = ", ".join(f"({gx:.0f},{gy:.0f})" for gx, gy in slate)
-        print(
-            f"Gen {gen:3d}  slate=[{slate_str}]  "
-            f"best={stats['best_obj']:8.1f}  "
-            f"gen={stats['gen_obj']:8.1f}  "
-            f"avg={stats['avg_obj']:7.1f}  "
-            f"nov={np.mean(novelties):5.1f}  "
-            f"pool={len(curriculum.pool)}"
-            + ("  +GOAL" if grew else "")
-            + f"  ({elapsed:.1f}s)"
-        )
+            elapsed = time.time() - gen_t0
+            slate_str = ", ".join(f"({gx:.0f},{gy:.0f})" for gx, gy in slate)
+            print(
+                f"Gen {gen:3d}  slate=[{slate_str}]  "
+                f"best={stats['best_obj']:8.1f}  "
+                f"gen={stats['gen_obj']:8.1f}  "
+                f"avg={stats['avg_obj']:7.1f}  "
+                f"nov={np.mean(novelties):5.1f}  "
+                f"pool={len(curriculum.pool)}"
+                + ("  +GOAL" if grew else "")
+                + f"  ({elapsed:.1f}s)"
+            )
 
     print(f"\nDone in {time.time() - t0:.1f}s  |  best objective: {ea.best_obj:.2f}")
 
-    genome_path = BASE_DIR / "best_genome_goal2.npy"
-    hist_path   = BASE_DIR / "fitness_history_goal2.json"
+    genome_path = BASE_DIR / "best_genome_goal3.npy"
+    hist_path   = BASE_DIR / "fitness_history_goal3.json"
     np.save(genome_path, ea.best_genome)
     with open(hist_path, "w") as fh:
         json.dump(ea.history, fh, indent=2)
     print(f"Saved → {genome_path.name}  |  {hist_path.name}")
 
 
-
-main()
+if __name__ == "__main__":
+    main()

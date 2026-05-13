@@ -18,28 +18,28 @@ import motionmodel as mm
 import filter as kf
 
 try:
-    from evo_alg.ea_goal import (
-        FeedforwardController, WallFollowRecovery,
-        N_INPUTS, N_HIDDEN, N_OUTPUTS,
-        START_X, START_Y, GOAL_X, GOAL_Y, GOAL_RADIUS,
+    from evo_alg.ea_tools import FeedforwardController, WallFollowRecovery
+    from evo_alg.ea_goalv2 import (N_INPUTS, N_HIDDEN, N_OUTPUTS,
+        START_X, START_Y, GOAL_RADIUS, CURRICULUM_GOALS,
         SIGMA_R, SIGMA_Q, SIGMA_0,
         DT, CAR_LENGTH, CAR_WIDTH, MAX_V, MAX_OMEGA,
         walls, landmarks, landmark_groups, obstacles,
-        _sensor_acts, _goal_acts,
+        sensor_acts, goal_acts,
     )
 except ModuleNotFoundError:
-    from ea_goal import (
+    from ea_goalv2 import (
         FeedforwardController, WallFollowRecovery,
         N_INPUTS, N_HIDDEN, N_OUTPUTS,
-        START_X, START_Y, GOAL_X, GOAL_Y, GOAL_RADIUS,
+        START_X, START_Y, GOAL_RADIUS, CURRICULUM_GOALS,
         SIGMA_R, SIGMA_Q, SIGMA_0,
         DT, CAR_LENGTH, CAR_WIDTH, MAX_V, MAX_OMEGA,
         walls, landmarks, landmark_groups, obstacles,
-        _sensor_acts, _goal_acts,
+        sensor_acts, goal_acts,
     )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-GENOME_FILE = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_goal.npy")
+GENOME_FILE   = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_goal3.npy")
+SWITCH_RADIUS = GOAL_RADIUS + 25 # switch goal when robot gets within this distance
 
 # World bounds (match map.py)
 WORLD_X_MIN, WORLD_X_MAX = -600.0, 450.0
@@ -88,20 +88,27 @@ def main() -> None:
     pygame.display.set_caption("Goal Navigation — ea_goal best genome  (R=reset  ESC=quit)")
     font = pygame.font.SysFont(None, 20)
 
+    goal_idx = 0
+    goal_x, goal_y = CURRICULUM_GOALS[goal_idx]
+    goals_reached = 0
+
     def reset():
+        nonlocal goal_idx, goal_x, goal_y, goals_reached
         controller.reset()
         mm.x, mm.y, mm.theta = START_X, START_Y, 0.0
         mm.v = mm.omega = 0.0
         mm.dt = DT
+        goal_idx, goal_x, goal_y = 0, *CURRICULUM_GOALS[0]
+        goals_reached = 0
         return (START_X, START_Y, 0.0, SIGMA_0.copy(),
                 WallFollowRecovery(), [], [], 0, 0,
-                math.hypot(START_X - GOAL_X, START_Y - GOAL_Y))
+                math.hypot(START_X - goal_x, START_Y - goal_y))
 
     (est_x, est_y, est_theta, sigma_mat,
      wall_follower, trail_true, trail_ekf,
      step, collisions, best_d) = reset()
 
-    curr_d  = math.hypot(START_X - GOAL_X, START_Y - GOAL_Y)
+    curr_d  = math.hypot(START_X - goal_x, START_Y - goal_y)
     running = True
     clock   = pygame.time.Clock()
 
@@ -114,7 +121,7 @@ def main() -> None:
                     (est_x, est_y, est_theta, sigma_mat,
                      wall_follower, trail_true, trail_ekf,
                      step, collisions, best_d) = reset()
-                    curr_d = math.hypot(START_X - GOAL_X, START_Y - GOAL_Y)
+                    curr_d = math.hypot(START_X - goal_x, START_Y - goal_y)
                 elif event.key == pygame.K_ESCAPE:
                     running = False
 
@@ -122,29 +129,28 @@ def main() -> None:
 
         # Sense
         wall_readings = mm.get_sensor_readings(walls)
-        raw_acts      = _sensor_acts(wall_readings)
-        goal_acts_v   = _goal_acts(est_x, est_y, est_theta, GOAL_X, GOAL_Y)
-        nn_input      = np.concatenate([raw_acts, goal_acts_v])
+        raw_acts    = sensor_acts(wall_readings)
+        goal_acts_v = goal_acts(est_x, est_y, est_theta, goal_x, goal_y)
+        nn_input    = np.concatenate([raw_acts, goal_acts_v])
 
-        # Motor commands (wall-follow takes priority when active)
         wf_cmd = wall_follower.command(raw_acts)
         if wf_cmd is not None:
             mm.v, mm.omega = wf_cmd
         else:
-            out      = controller.forward(nn_input, genome)
-            mm.v     = float(out[0]) * MAX_V
+            out = controller.forward(nn_input, genome)
+            mm.v = float(out[0]) * MAX_V
             mm.omega = float(out[1]) * MAX_OMEGA
 
         # Physics
         hit = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
-        wall_follower.tick(hit)
+        wall_follower.tick(hit, mm.x, mm.y)
         if hit:
             collisions += 1
 
         # EKF
-        eff_v     = 0.0 if hit else mm.v
+        eff_v = 0.0 if hit else mm.v
         eff_omega = 0.0 if hit else mm.omega
-        lm_meas   = mm.get_landmark_measurements(landmark_groups)
+        lm_meas = mm.get_landmark_measurements(landmark_groups)
         mu_bar, sigma_mat = kf.ekf_filter(
             est_x, est_y, est_theta, sigma_mat,
             SIGMA_R, SIGMA_Q, eff_v, eff_omega, DT, lm_meas,
@@ -153,9 +159,18 @@ def main() -> None:
         est_y     = float(mu_bar[1, 0])
         est_theta = float(mu_bar[2, 0])
 
-        curr_d = math.hypot(mm.x - GOAL_X, mm.y - GOAL_Y)
+        curr_d = math.hypot(mm.x - goal_x, mm.y - goal_y)
         best_d = min(best_d, curr_d)
         step  += 1
+
+        # Switch to a random different goal when robot gets close enough
+        if curr_d < SWITCH_RADIUS and len(CURRICULUM_GOALS) > 1:
+            other = [i for i in range(len(CURRICULUM_GOALS)) if i != goal_idx]
+            goal_idx = int(np.random.choice(other))
+            goal_x, goal_y = CURRICULUM_GOALS[goal_idx]
+            best_d = math.hypot(mm.x - goal_x, mm.y - goal_y)
+            goals_reached += 1
+            print(f"Goal reached! → goal {goal_idx + 1}: ({goal_x:.0f}, {goal_y:.0f})")
 
         # Trails
         trail_true.append((mm.x, mm.y))
@@ -177,12 +192,16 @@ def main() -> None:
             sx, sy = w2s(*grp["center"])
             pygame.draw.circle(screen, LM_COLOR, (sx, sy), 5, 2)
 
-        # Goal (red crosshair)
-        gsx, gsy = w2s(GOAL_X, GOAL_Y)
+        # All goals: active = bright red crosshair, inactive = dim outline
         r_px = max(4, int(GOAL_RADIUS * SCALE))
-        pygame.draw.circle(screen, GOAL_COLOR, (gsx, gsy), r_px, 2)
-        pygame.draw.line(screen, GOAL_COLOR, (gsx - r_px, gsy), (gsx + r_px, gsy), 2)
-        pygame.draw.line(screen, GOAL_COLOR, (gsx, gsy - r_px), (gsx, gsy + r_px), 2)
+        for i, (gx, gy) in enumerate(CURRICULUM_GOALS):
+            gsx, gsy = w2s(gx, gy)
+            if i == goal_idx:
+                pygame.draw.circle(screen, GOAL_COLOR, (gsx, gsy), r_px, 2)
+                pygame.draw.line(screen, GOAL_COLOR, (gsx - r_px, gsy), (gsx + r_px, gsy), 2)
+                pygame.draw.line(screen, GOAL_COLOR, (gsx, gsy - r_px), (gsx, gsy + r_px), 2)
+            else:
+                pygame.draw.circle(screen, (180, 100, 100), (gsx, gsy), r_px, 1)
 
         # Start marker (blue dot)
         pygame.draw.circle(screen, START_COLOR, w2s(START_X, START_Y), 5)
@@ -227,13 +246,13 @@ def main() -> None:
         pose_err = math.hypot(mm.x - est_x, mm.y - est_y)
         hud = [
             "ea_goal best genome  |  green=true  orange=EKF  |  R=reset  ESC=quit",
-            f"Step: {step:5d}   Collisions: {collisions}"
+            f"Step: {step:5d}   Collisions: {collisions}   Goals reached: {goals_reached}"
             + ("  [WALL-FOLLOW]" if wall_follower.active else ""),
             f"v={mm.v:6.1f}  omega={mm.omega:5.2f}",
             f"True:  ({mm.x:6.1f}, {mm.y:6.1f})  theta={math.degrees(mm.theta)%360:5.1f}deg",
             f"EKF:   ({est_x:6.1f}, {est_y:6.1f})  theta={math.degrees(est_theta)%360:5.1f}deg",
             f"Pose error: {pose_err:5.1f}",
-            f"Goal distance (true): {curr_d:6.1f}   best: {best_d:6.1f}",
+            f"Goal {goal_idx + 1}/{len(CURRICULUM_GOALS)}: ({goal_x:.0f}, {goal_y:.0f})   dist: {curr_d:6.1f}   best: {best_d:6.1f}",
         ]
         for row, line in enumerate(hud):
             surf = font.render(line, True, (20, 20, 20))

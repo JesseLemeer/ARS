@@ -5,9 +5,11 @@ import numpy as np
 MAX_V    = 100.0
 MAX_OMEGA = 5.0
 
-WALLFOLLOW_TRIGGER = 4
+WALLFOLLOW_TRIGGER = 2
 WALLFOLLOW_WINDOW  = 25
-WALLFOLLOW_STEPS   = 80
+WALLFOLLOW_STEPS   = 100
+STUCK_DIST_THR     = 20.0   # units — robot must travel this far in STUCK_STEPS or be deemed stuck
+STUCK_STEPS        = 50     # steps to measure displacement over
 
 NOVELTY_K    = 15
 ARCHIVE_CAP  = 300
@@ -127,20 +129,50 @@ class FeedforwardController:
 class WallFollowRecovery:
     _TARGET_RIGHT = 0.55
     _KP = 2.5
+    _STUCK_THRESHOLD = 3   # consecutive steps with no movement before reversing
 
     def __init__(self):
-        self._buf = collections.deque(maxlen=WALLFOLLOW_WINDOW)
+        self._buf     = collections.deque(maxlen=WALLFOLLOW_WINDOW)
+        self._pos_buf = collections.deque(maxlen=STUCK_STEPS)
         self._steps_left = 0
+        self._stuck_count = 0
+        self._prev_pos    = None
 
     @property
     def active(self):
         return self._steps_left > 0
 
-    def tick(self, hit):
+    def tick(self, hit, x=None, y=None):
         self._buf.append(int(hit))
-        if not self.active and sum(self._buf) >= WALLFOLLOW_TRIGGER:
+        if x is not None:
+            self._pos_buf.append((x, y))
+
+        if self.active:
+            # Track whether the robot is actually moving during recovery
+            if x is not None:
+                if self._prev_pos is not None:
+                    moved = math.hypot(x - self._prev_pos[0], y - self._prev_pos[1])
+                    self._stuck_count = self._stuck_count + 1 if moved < 0.1 else 0
+                self._prev_pos = (x, y)
+            return
+
+        # Reset stuck tracking when wall-follow is inactive
+        self._stuck_count = 0
+        self._prev_pos    = None
+
+        if sum(self._buf) >= WALLFOLLOW_TRIGGER:
             self._steps_left = WALLFOLLOW_STEPS
             self._buf.clear()
+            self._pos_buf.clear()
+            return
+        # Position-based stuck detection: activate if we haven't moved far enough
+        if x is not None and len(self._pos_buf) == STUCK_STEPS:
+            dx = x - self._pos_buf[0][0]
+            dy = y - self._pos_buf[0][1]
+            if math.hypot(dx, dy) < STUCK_DIST_THR:
+                self._steps_left = WALLFOLLOW_STEPS
+                self._buf.clear()
+                self._pos_buf.clear()
 
     def command(self, raw_acts):
         if not self.active:
@@ -148,8 +180,15 @@ class WallFollowRecovery:
         self._steps_left -= 1
         front = float(raw_acts[0])
         right = float(np.mean(raw_acts[9:11]))
+
+        # Wedged and not moving at all → reverse to break free
+        if self._stuck_count >= self._STUCK_THRESHOLD:
+            return -MAX_V * 0.3, -MAX_OMEGA * 0.7
+
+        # Wall directly ahead → back up while turning rather than pushing into it
         if front > 0.78:
-            return MAX_V * 0.15, MAX_OMEGA * 0.85
+            return -MAX_V * 0.2, MAX_OMEGA * 0.85
+
         omega = self._KP * (right - self._TARGET_RIGHT)
         v = MAX_V * (0.55 - 0.25 * front)
         return (float(np.clip(v, 5.0, MAX_V)),

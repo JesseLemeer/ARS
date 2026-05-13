@@ -135,7 +135,7 @@ def evaluate(genome: np.ndarray, controller: FeedforwardController,
 
         # Physics
         hit = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
-        wall_follower.tick(hit)
+        wall_follower.tick(hit, mm.x, mm.y)
 
         # EKF (bumper zeros velocity prediction on contact)
         eff_v     = 0.0 if hit else mm.v
@@ -253,4 +253,5 @@ def main() -> None:
     print("Visualise: python watch_goal.py")
 
 
-main()
+if __name__ == "__main__": 
+    main()
