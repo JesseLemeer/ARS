@@ -245,7 +245,7 @@ def goal_activations(state, goal_x, goal_y, max_distance=None):
         goal_bearing = math.atan2(delta_y, delta_x)
         relative_bearing = mm.normalize_angle(goal_bearing - state.est_theta)
 
-    distance_input = np.clip(distance / max_distance, 0.0, 1.0)
+    distance_input = 1.0 - math.exp(-distance / 100.0)
     return np.array(
         [
             distance_input,

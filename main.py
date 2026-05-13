@@ -31,7 +31,6 @@ KF_SIGMA_SQ_RX     = 2.0
 KF_SIGMA_SQ_RY     = 2.0
 KF_SIGMA_SQ_RTHETA = math.radians(2.0) ** 2
  
-# KF-only noise (3x3 observation, triangulated pose)
 KF_SIGMA_SQ_QX     = 16.0
 KF_SIGMA_SQ_QY     = 16.0
 KF_SIGMA_SQ_QTHETA = math.radians(8.0) ** 2
@@ -53,22 +52,19 @@ font  = pygame.font.SysFont(None, 20)
 walls, landmarks, landmark_groups = mp.create_map()
 obstacles = walls + landmarks
 
-kf_est_x      = mm.x
-kf_est_y      = mm.y
-kf_est_theta  = mm.theta
-kf_sigma_sq_x     = KF_SIGMA_SQ_X
-kf_sigma_sq_y     = KF_SIGMA_SQ_Y
-kf_sigma_sq_theta = KF_SIGMA_SQ_THETA
-kf_sigma_xy       = 0.0
+kf_est_x = mm.x
+kf_est_y = mm.y
+kf_est_theta = mm.theta
+kf_sigma_mat = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
                                                                                                                                                                                                                                                                                                                                                             
-ekf_est_x     = mm.x
-ekf_est_y     = mm.y
+ekf_est_x = mm.x
+ekf_est_y = mm.y
 ekf_est_theta = mm.theta
 ekf_sigma_mat = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
-ekf_sigma_R   = np.diag([KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA])
-ekf_sigma_Q   = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
+ekf_sigma_R = np.diag([KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA])
+ekf_sigma_Q = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
 
-slam_mu    = np.array([mm.x, mm.y, mm.theta])   # grows as landmarks discovered
+slam_mu = np.array([mm.x, mm.y, mm.theta])   # grows as landmarks discovered
 slam_sigma = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
 slam_landmark_index = {}  # {landmark_id -> state index}
 
@@ -87,12 +83,11 @@ grid = OccupancyGrid(
     l_max=5.0,
     l_min=-5.0,
 )
-show_map = True    # toggle with M key
+show_map = True # toggle with M key
 ekf = True #switches between ekf and kf
-slam = True
+slam = False
 running = True
 while running:
-
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -101,7 +96,6 @@ while running:
             # M → toggle map overlay
             if event.key == pygame.K_m:
                 show_map = not show_map
-
     # Robot Movement
     keys = pygame.key.get_pressed()
     if   keys[pygame.K_LEFT]:  mm.omega =  OMEGA
@@ -126,26 +120,22 @@ while running:
     if not ekf:
         kf_mu, kf_sigma_mat = kf.kalman_filter(
             kf_est_x, kf_est_y, kf_est_theta,
-            kf_sigma_sq_x, kf_sigma_sq_y, kf_sigma_sq_theta,
+            kf_sigma_mat,
             KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA,
             KF_SIGMA_SQ_QX, KF_SIGMA_SQ_QY, KF_SIGMA_SQ_QTHETA,
             mm.v, mm.omega, mm.dt,
             landmark_measurements,
         )
-        kf_est_x = float(kf_mu[0, 0])
-        kf_est_y = float(kf_mu[1, 0])
+        kf_est_x    = float(kf_mu[0, 0])
+        kf_est_y    = float(kf_mu[1, 0])
         kf_est_theta = float(kf_mu[2, 0])
-        kf_sigma_sq_x = float(kf_sigma_mat[0, 0])
-        kf_sigma_sq_y = float(kf_sigma_mat[1, 1])
-        kf_sigma_sq_theta = float(kf_sigma_mat[2, 2])
-        kf_sigma_xy = float(kf_sigma_mat[0, 1])
-    
-        est_x = kf_est_x
-        est_y = kf_est_y
-        est_theta = kf_est_theta
-        est_sig_xx = kf_sigma_sq_x
-        est_sig_yy = kf_sigma_sq_y
-        est_sig_xy = kf_sigma_xy
+
+        est_x      = kf_est_x
+        est_y      = kf_est_y
+        est_theta  = kf_est_theta
+        est_sig_xx = float(kf_sigma_mat[0, 0])
+        est_sig_yy = float(kf_sigma_mat[1, 1])
+        est_sig_xy = float(kf_sigma_mat[0, 1])
     else:
         if slam:
             slam_mu, slam_sigma, slam_landmark_index = kf.ekf_slam(

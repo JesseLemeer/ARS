@@ -70,7 +70,9 @@ def triangulation(measurement_a, measurement_b):
 
         if error < best_error:
             best_error = error
-            best_pose = (candidate_x, candidate_y, normalize_angle((theta_a + theta_b) / 2.0))
+            theta_avg = math.atan2(math.sin(theta_a) + math.sin(theta_b),
+                                   math.cos(theta_a) + math.cos(theta_b))
+            best_pose = (candidate_x, candidate_y, theta_avg)
 
     return best_pose
 
@@ -103,7 +105,7 @@ def get_estimated_pose(measurements, debug=True):
     return x_avg, y_avg, theta_avg
 
 
-def kalman_filter(x,y,theta,sigma_sq_x,sigma_sq_y, sigma_sq_theta, sigma_sq_Rx,sigma_sq_Ry, sigma_sq_Rtheta, sigma_sq_Qx,sigma_sq_Qy, sigma_sq_Qtheta, v,omega,dt, measurements):
+def kalman_filter(x, y, theta, sigma_mat, sigma_sq_Rx, sigma_sq_Ry, sigma_sq_Rtheta, sigma_sq_Qx, sigma_sq_Qy, sigma_sq_Qtheta, v, omega, dt, measurements):
     #prediction
     A = np.identity(3)
     R = np.array([(sigma_sq_Rx,0,0),(0,sigma_sq_Ry,0),(0,0,sigma_sq_Rtheta)])
@@ -114,7 +116,7 @@ def kalman_filter(x,y,theta,sigma_sq_x,sigma_sq_y, sigma_sq_theta, sigma_sq_Rx,s
     mu_new_bar = np.dot(A,mu_old) + np.dot(B,u)
     mu_new_bar[2, 0] = normalize_angle(mu_new_bar[2, 0])
 
-    sigma_old= np.array([(sigma_sq_x,0,0),(0,sigma_sq_y,0),(0,0,sigma_sq_theta)])
+    sigma_old = sigma_mat
     sigma_new_bar = A @ sigma_old @ A.T + R
     
     #correction

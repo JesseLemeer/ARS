@@ -17,7 +17,7 @@ ensure_project_root_on_path(__file__)
 import motionmodel as mm
 import map as mp
 from evo_alg.ea import GOAL_RADIUS, GOAL_X as DEFAULT_GOAL_X, GOAL_Y as DEFAULT_GOAL_Y
-from evo_alg.ea_tools import NeuralController
+from evo_alg.ea_tools import NeuralController, RecurrentController
 from evo_alg.ea_navigation import bootstrap_navigation, make_navigation_state, mapped_sensor_activations, navigation_inputs, update_navigation, raw_sensor_activations
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -34,7 +34,8 @@ TRAIL_LEN    = 300
 N_SENSORS = len(mm.SENSOR_ANGLES_DEG)
 N_GOAL_INPUTS = 3
 N_INPUTS = N_SENSORS + N_GOAL_INPUTS
-N_HIDDEN  = 10
+N_HIDDEN1 = 20
+N_HIDDEN2 = 12
 N_OUTPUTS = 2
 
 SCREEN_W, SCREEN_H = 800, 600
@@ -56,7 +57,7 @@ def get_sensors(walls, landmark_groups):
 
 def main():
     # ── Load genome ────────────────────────────────────────────────────────────
-    controller = NeuralController(N_INPUTS, N_HIDDEN, N_OUTPUTS)
+    controller = RecurrentController(N_INPUTS, 20, N_OUTPUTS)
     try:
         genome = np.load(GENOME_FILE)
         print(f"Loaded genome from {GENOME_FILE}  ({len(genome)} genes)")
@@ -76,8 +77,9 @@ def main():
 
     # ── Reset robot ────────────────────────────────────────────────────────────
     def reset_robot():
-        mm.x = 100
-        mm.y = -100
+        controller.reset()
+        mm.x = -380
+        mm.y = 337
         mm.theta = mm.v = mm.omega = 0.0
         mm.dt = DT
 

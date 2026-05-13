@@ -21,15 +21,9 @@ def world_to_screen(wx, wy, screen_width, screen_height):
     return int(screen_x), int(screen_y)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Geometry primitives
-# ─────────────────────────────────────────────────────────────────────────────
-
 def closest_point_on_segment(px, py, x1, y1, x2, y2):
-    """Return (closest_x, closest_y, t, dist) where t is the *clamped*
-    parameter along the segment (0 = start, 1 = end), so 0 < t < 1 means the
-    closest point is interior to the segment. dist is Euclidean."""
-    dx, dy = x2 - x1, y2 - y1
+    dx = x2 - x1
+    dy = y2 - y1
     if dx == 0 and dy == 0:
         return x1, y1, 0.0, math.hypot(px - x1, py - y1)
     raw_t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
@@ -56,11 +50,6 @@ def segment_intersects_segment(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
 
 
 def segment_crosses_wall_interior(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
-    """True iff segment A crosses segment B with the intersection point
-    strictly INTERIOR to B (the wall). Endpoint-only contacts (u≈0 or u≈1)
-    do NOT count, because past an endpoint the wall does not physically
-    exist — a robot edge passing through a wall endpoint is touching empty
-    space, not crossing wall material."""
     dax, day = ax2 - ax1, ay2 - ay1
     dbx, dby = bx2 - bx1, by2 - by1
     cross = dax * dby - day * dbx
@@ -69,12 +58,11 @@ def segment_crosses_wall_interior(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
     dx, dy = bx1 - ax1, by1 - ay1
     t = (dx * dby - dy * dbx) / cross
     u = (dx * day - dy * dax) / cross
-    U_EPS = 1e-6
+    U_EPS = 1e-6 #error tolerance
     return 0.0 <= t <= 1.0 and U_EPS < u < 1.0 - U_EPS
 
 
 def wall_normal_for_point(wall, px, py):
-    """Wall normal pointing toward (px, py)."""
     (x1, y1), (x2, y2) = wall
     dx = x2 - x1
     dy = y2 - y1
@@ -97,54 +85,10 @@ def get_robot_corners_at(target_x, target_y, target_theta, length, width):
             for lx, ly in local_corners]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Collision detection
-#
-# Two failure modes the previous version had, both fixed here:
-#
-# (1) Phantom wall extension. A wall is a finite segment, but
-#     `wall_normal_for_point` builds the normal of the wall's *infinite* line.
-#     A robot corner sitting near a wall ENDPOINT (within `margin`) was
-#     treated as colliding with the wall surface even though geometrically
-#     the wall has ended. Fix: proximity hits only count when the closest
-#     point on the segment is INTERIOR (0 < t < 1).
-#
-# (2) Wrong-side normal. The normal direction was chosen by passing the
-#     closest robot corner to `wall_normal_for_point`. If that corner has
-#     already crossed the wall, the normal points toward the WRONG side,
-#     `dot >= 0` for any velocity, and the resolver concludes the robot is
-#     "moving away" and lets it teleport through. Fix: always pass the
-#     pre-move robot CENTER (or another reference known to be on the safe
-#     side) when computing the normal.
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _wall_collision(wall, corners, edges, ref_x, ref_y, margin):
-    """Test one wall against the robot footprint.
-
-    `ref_x, ref_y` is a point on the SAFE side of the wall (typically the
-    pre-move robot center) — used to choose normal direction reliably even if
-    a robot corner has crossed.
-
-    Returns (nx, ny, depth) or None.
-    `depth` is the smallest signed distance from any robot corner to the
-    wall's infinite line, measured in the *outward* normal direction. More
-    negative = deeper penetration.
-    """
     (w1x, w1y), (w2x, w2y) = wall
+    edge_hit = any(segment_crosses_wall_interior(ex1, ey1, ex2, ey2, w1x, w1y, w2x, w2y)for (ex1, ey1), (ex2, ey2) in edges)
 
-    # 1. Edge-intersection — robot edge crosses the wall's interior surface.
-    #    We require the crossing to be INTERIOR to the wall segment (u strictly
-    #    in (0,1)) because the wall only physically exists between its two
-    #    endpoints; touching an endpoint means the robot has reached the end of
-    #    the wall, not passed through it.  Using the non-strict version here
-    #    was causing phantom "blocked" results at convex corners where the
-    #    robot legitimately slides past the end of a finite wall.
-    edge_hit = any(
-        segment_crosses_wall_interior(ex1, ey1, ex2, ey2, w1x, w1y, w2x, w2y)
-        for (ex1, ey1), (ex2, ey2) in edges
-    )
-
-    # 2. Closest robot corner to the wall segment, plus the parameter t.
     best_dist = float('inf')
     best_t = None
     for cx, cy in corners:
@@ -153,31 +97,18 @@ def _wall_collision(wall, corners, edges, ref_x, ref_y, margin):
             best_dist = d
             best_t = t
 
-    # 3. Proximity hit only counts when the closest point is interior to the
-    #    wall — past an endpoint the wall doesn't physically exist, so a
-    #    proximity-to-endpoint must NOT be treated as a wall surface hit.
     INTERIOR_EPS = 1e-3
-    prox_hit = (best_dist < margin
-                and INTERIOR_EPS < best_t < 1.0 - INTERIOR_EPS)
+    prox_hit = (best_dist < margin and INTERIOR_EPS < best_t < 1.0 - INTERIOR_EPS)
 
     if not (edge_hit or prox_hit):
         return None
 
-    # 4. Normal direction: anchor on the safe-side reference point so a
-    #    crossed corner can never invert it.
-    nx, ny = wall_normal_for_point(wall, ref_x, ref_y)
+    nx, ny = wall_normal_for_point(wall, ref_x, ref_y)#using reference point that ensure the normal points the correct way
 
     return (nx, ny, best_dist)
 
 
-def get_all_collisions(rx, ry, rtheta, length, width, walls,
-                       margin=2.0, ref_point=None):
-    """Return a list of (nx, ny) outward normals for every wall the robot
-    is currently in contact with.
-
-    `ref_point` is a (refx, refy) on the safe side of all walls; if omitted
-    the robot center (rx, ry) is used (acceptable for the rotation check
-    where the body has not been moved)."""
+def get_all_collisions(rx, ry, rtheta, length, width, walls, margin=2.0, ref_point=None):
     if ref_point is None:
         ref_point = (rx, ry)
     ref_x, ref_y = ref_point
@@ -196,10 +127,6 @@ def get_all_collisions(rx, ry, rtheta, length, width, walls,
 
 
 def _any_edge_crossing(rx, ry, rtheta, length, width, walls):
-    """Strict test: does any robot edge cross any wall's interior surface?
-    No margin, no normals — a final sanity check that the resolved position
-    genuinely doesn't penetrate wall material.  Uses the same interior-only
-    criterion as edge_hit in _wall_collision so the two are consistent."""
     corners = get_robot_corners_at(rx, ry, rtheta, length, width)
     n = len(corners)
     for i in range(n):
@@ -207,16 +134,12 @@ def _any_edge_crossing(rx, ry, rtheta, length, width, walls):
         e2x, e2y = corners[(i + 1) % n]
         for wall in walls:
             (w1x, w1y), (w2x, w2y) = wall
-            if segment_crosses_wall_interior(e1x, e1y, e2x, e2y,
-                                             w1x, w1y, w2x, w2y):
+            if segment_crosses_wall_interior(e1x, e1y, e2x, e2y,w1x, w1y, w2x, w2y):
                 return True
     return False
 
 
 def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
-    """Used for the rotation pre-check in update(). The robot is at (rx,ry)
-    in the *current* (already accepted) translation state, so (rx,ry) itself
-    is on the safe side."""
     corners = get_robot_corners_at(rx, ry, rtheta, length, width)
     n = len(corners)
     edges = [(corners[i], corners[(i + 1) % n]) for i in range(n)]
@@ -226,9 +149,7 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
         hit = _wall_collision(wall, corners, edges, rx, ry, margin)
         if hit is None:
             continue
-        nx, ny, depth = hit
-        # find the corner that generated this depth, for the legacy
-        # (collided, wall, corner) return signature
+        _, _, depth = hit
         (w1x, w1y), (w2x, w2y) = wall
         closest_corner = min(
             corners,
@@ -241,26 +162,9 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
     _, wall, corner = best
     return True, wall, corner
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Sliding resolver
-#
-# Strategy:
-#   * Each iteration, gather ALL outward normals of currently-touching walls.
-#   * Project the desired displacement against every normal whose dot with
-#     velocity is negative (i.e. velocity has a component INTO that wall).
-#   * If no normal has dot < 0 we're either truly cornered (≥ 2 normals
-#     spanning all directions of motion) or only brushing margin — either
-#     way, stop iterating.
-#   * Final sanity check: if the resolved displacement still produces any
-#     edge crossing, fall back to no movement. This is the guarantee against
-#     teleporting through walls.
-# ─────────────────────────────────────────────────────────────────────────────
-
-def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width,
-                    iterations=8):
+def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width,iterations=8):
     collision_happened = False
-    ref = (px, py)  # the original center is on the safe side by precondition
+    ref = (px, py)
 
     for _ in range(iterations):
         normals = get_all_collisions(
@@ -280,25 +184,17 @@ def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width,
                 any_blocked = True
 
         if not any_blocked:
-            # Touching wall(s) but velocity is parallel or moving away from
-            # all of them. Treat as a margin artifact and accept.
             break
 
         if dx * dx + dy * dy < 1e-10:
             dx = dy = 0.0
             break
 
-    # Hard guarantee: if the final position has any geometric wall crossing,
-    # don't move. Better to be stationary than to phase through.
-    if _any_edge_crossing(px + dx, py + dy, ptheta, length, width, walls):
+    if _any_edge_crossing(px + dx, py + dy, ptheta, length, width, walls):#sanity check
         return px, py, True
 
     return px + dx, py + dy, collision_happened
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Motion update — unchanged in structure, just calls the new sliding code.
-# ─────────────────────────────────────────────────────────────────────────────
 
 def velocity_step():
     global x, y, theta, v, omega, dt
@@ -343,10 +239,6 @@ def update(walls, length, width):
 
     return collision_occurred
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Below: sensor / measurement code unchanged from the original.
-# ─────────────────────────────────────────────────────────────────────────────
 
 def line_endpoint(length):
     line_x = x + length * math.cos(theta)
