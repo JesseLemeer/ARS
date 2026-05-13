@@ -1,17 +1,3 @@
-"""
-ea_goal.py — Point-to-point navigation: (0, 0) → landmark (278, -203)
-=======================================================================
-Minimal EA for learning to drive to a single goal using:
-  - EKF localisation in a known map (bumper correction on collision)
-  - 12 raw lidar + 3 goal-bearing inputs → 15→8→2 feedforward network
-  - Fitness: Floreano smooth-driving + coverage + progress + goal bonus
-  - Large per-collision penalty
-
-Run:
-    cd ARS/evo_alg
-    python ea_goal.py
-"""
-
 import collections, json, math, os, time
 from pathlib import Path
 
@@ -50,7 +36,7 @@ CURRICULUM_GOALS = [
     (318.0,   43.0),   # right-side dead-end road
     (203.0, -189.0),   # bottom-right area
 ]
-GOAL_X, GOAL_Y  = -250,0#CURRICULUM_GOALS[0]   # default (used by watch_goal.py)
+GOAL_X, GOAL_Y  = CURRICULUM_GOALS[0]   # default (used by watch_goal.py)
 GENS_PER_GOAL   = 20                     # generations before rotating to next goal
 
 GOAL_RADIUS      = 12.0
@@ -87,7 +73,6 @@ obstacles = walls + landmarks
 
 
 def _sensor_acts(wall_readings) -> np.ndarray:
-    """Raw lidar distances → [0, 1] activations (1 = touching wall)."""
     return np.clip(
         np.array([1.0 - r["distance"] / mm.SENSOR_MAX_RANGE for r in wall_readings]),
         0.0, 1.0,
@@ -96,10 +81,6 @@ def _sensor_acts(wall_readings) -> np.ndarray:
 
 def _goal_acts(est_x: float, est_y: float, est_theta: float,
                goal_x: float, goal_y: float) -> np.ndarray:
-    """
-    Goal inputs from EKF *estimated* pose (controller never sees true position).
-    Returns [distance_activation, sin(bearing), cos(bearing)].
-    """
     dx, dy = goal_x - est_x, goal_y - est_y
     dist   = math.hypot(dx, dy)
     if dist < 1e-9:
@@ -117,10 +98,6 @@ def _cov_cell(x: float, y: float) -> tuple:
 
 def evaluate(genome: np.ndarray, controller: FeedforwardController,
              goal_x: float = GOAL_X, goal_y: float = GOAL_Y) -> float:
-    """
-    Evaluate one genome. goal_x/goal_y default to CURRICULUM_GOALS[0] but are
-    set by main() to rotate through the curriculum every GENS_PER_GOAL generations.
-    """
     controller.reset()
     mm.x, mm.y, mm.theta = START_X, START_Y, 0.0
     mm.v = mm.omega = 0.0
@@ -233,7 +210,7 @@ def main() -> None:
     print(f"  Eval steps : {EVAL_STEPS}  (DT={DT}s → {EVAL_STEPS*DT:.0f}s / episode)")
     print("=" * 72)
 
-    ea = EA(
+    ea = EA_goal(
         pop_size       = POP_SIZE,
         genome_size    = controller.genome_size,
         mutation_rate  = MUTATION_RATE,
