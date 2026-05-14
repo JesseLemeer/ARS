@@ -36,7 +36,15 @@ SIGMA_R = np.diag([2.0, 2.0, math.radians(2.0) ** 2])
 SIGMA_Q = np.diag([4.0, math.radians(3.0) ** 2])
 SIGMA_0 = np.diag([0.1, 0.1, math.radians(1.0) ** 2])
 
-START_X, START_Y = 0.0, 0.0
+START_X, START_Y = 0.0, 0.0   # default / watch-mode start
+
+START_POSITIONS = [
+    (   0.0,    0.0),   # intersection centre
+    (-200.0,    0.0),   # west arm of corridor
+    ( 200.0,    0.0),   # east arm of corridor
+    (   0.0, -200.0),   # south arm of corridor
+    (   0.0,  200.0),   # north arm of corridor
+]
 
 CURRICULUM_GOALS = [
     (-300.0,  100.0),
@@ -68,7 +76,7 @@ GOAL_BONUS        = 5000.0
 GOAL_TIME_BONUS   = 5000.0
 PROGRESS_GAIN     = 5.0
 HEADING_GAIN      = 0.5
-SMOOTH_TERMINAL   = 100.0
+SMOOTH_TERMINAL   = 25.0
 CLOSENESS_BONUS   = 300.0
 COLLISION_PENALTY = 50.0
 COLLISION_TERMINATE = 50
@@ -112,13 +120,13 @@ def goal_acts(est_x, est_y, est_theta, goal_x, goal_y):
     return np.array([1.0 - math.exp(-dist / 100.0), math.sin(bearing), math.cos(bearing)])
 
 
-def evaluate_episode(genome, controller, goal_x, goal_y):
+def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_y=START_Y):
     controller.reset()
-    mm.x, mm.y, mm.theta = START_X, START_Y, 0.0
+    mm.x, mm.y, mm.theta = start_x, start_y, 0.0
     mm.v = mm.omega = 0.0
     mm.dt = DT
 
-    est_x, est_y, est_theta = START_X, START_Y, 0.0
+    est_x, est_y, est_theta = start_x, start_y, 0.0
     sigma_mat = SIGMA_0.copy()
 
     wall_follower = wfr()
@@ -170,7 +178,7 @@ def evaluate_episode(genome, controller, goal_x, goal_y):
                 steps_used = step + 1
                 break
 
-        speed_sum += abs(mm.v) / MAX_V
+        speed_sum += max(0.0, mm.v) / MAX_V   # forward-only
         turn_sum  += abs(mm.omega) / MAX_OMEGA
         n_steps   += 1
 
@@ -216,16 +224,20 @@ def evaluate_episode(genome, controller, goal_x, goal_y):
 def _specialist_worker(args):
     genome, goal_x, goal_y = args
     controller = ffc(N_INPUTS, N_HIDDEN, N_OUTPUTS)
-    obj, end = evaluate_episode(genome, controller, goal_x, goal_y)
+    sx, sy = START_POSITIONS[np.random.randint(len(START_POSITIONS))]
+    obj, end = evaluate_episode(genome, controller, goal_x, goal_y, sx, sy)
     return obj, end
 
 
 def _final_worker(args):
     genome, all_goals = args
     controller = ffc(N_INPUTS, N_HIDDEN, N_OUTPUTS)
+    # Same start position for all goals in one evaluation — consistent test of
+    # "from this position, can you reach every goal?"
+    sx, sy = START_POSITIONS[np.random.randint(len(START_POSITIONS))]
     objs, ends = [], []
     for gx, gy in all_goals:
-        obj, end = evaluate_episode(genome, controller, gx, gy)
+        obj, end = evaluate_episode(genome, controller, gx, gy, sx, sy)
         objs.append(obj)
         ends.append(end)
     base = float(np.mean(objs))
