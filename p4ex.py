@@ -417,7 +417,8 @@ def filter_step(exp_index: int, state: dict,
 def run_offline_experiment(exp_index: int, landmark_groups: list,
                            walls: list, record_path: list,
                            seed: int = 42) -> dict:
-    np.random.seed(seed + exp_index)
+    filter_seed = {"kf": 0, "ekf": 1, "slam": 2}
+    np.random.seed(seed + filter_seed[EXPERIMENTS[exp_index]["filter"]])
 
     saved = (mm.x, mm.y, mm.theta, mm.v, mm.omega, mm.dt)
     state = reset_state(exp_index, record_path)
