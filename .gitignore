@@ -6,7 +6,4 @@ __pycache__/
 *.pyc
 *.pyo
 best_genome/
-swarm_experiment_plots/
-swarm_experiment_results/
-swarm_metrics/
 .venv/

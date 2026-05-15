@@ -1,0 +1,111 @@
+{
+  "steps": 8525,
+  "n_robots": 4,
+  "shared_explored_cells": 3345,
+  "total_collisions": 269,
+  "wall_collisions": 269,
+  "robot_robot_collisions": 0,
+  "unique_goals_reached": 8,
+  "avg_pose_error": 11.887043188970413,
+  "per_robot": [
+    {
+      "robot_id": 0,
+      "collisions": 0,
+      "wall_collisions": 0,
+      "robot_robot_collisions": 0,
+      "goals_reached": 3,
+      "pose_error": 2.6092375289303367,
+      "recovery_steps_remaining": 0,
+      "no_progress_steps": 0,
+      "wall_trap_hits": 0,
+      "last_collision_type": "none",
+      "current_goal": null,
+      "true_goal_distance": null,
+      "true_pose": [
+        -343.01858848129683,
+        112.7099410577468,
+        31.770736386441246
+      ],
+      "estimated_pose": [
+        -341.59960755222943,
+        114.89960167193374,
+        0.3422706984445947
+      ]
+    },
+    {
+      "robot_id": 1,
+      "collisions": 268,
+      "wall_collisions": 268,
+      "robot_robot_collisions": 0,
+      "goals_reached": 1,
+      "pose_error": 41.478135194935945,
+      "recovery_steps_remaining": 95,
+      "no_progress_steps": 0,
+      "wall_trap_hits": 0,
+      "last_collision_type": "corner",
+      "current_goal": [
+        278.0,
+        -203.0
+      ],
+      "true_goal_distance": 77.86263017060232,
+      "true_pose": [
+        200.3079184135182,
+        -197.8493072462585,
+        302.53221332836347
+      ],
+      "estimated_pose": [
+        204.72843211950033,
+        -239.09121260748796,
+        0.6081658877944736
+      ]
+    },
+    {
+      "robot_id": 2,
+      "collisions": 0,
+      "wall_collisions": 0,
+      "robot_robot_collisions": 0,
+      "goals_reached": 2,
+      "pose_error": 0.6912793596881391,
+      "recovery_steps_remaining": 0,
+      "no_progress_steps": 3,
+      "wall_trap_hits": 0,
+      "last_collision_type": "none",
+      "current_goal": null,
+      "true_goal_distance": null,
+      "true_pose": [
+        -259.1235407829416,
+        -224.79803097329275,
+        43.28594786653953
+      ],
+      "estimated_pose": [
+        -259.75583542255816,
+        -225.07744221473263,
+        -0.6917877208825995
+      ]
+    },
+    {
+      "robot_id": 3,
+      "collisions": 1,
+      "wall_collisions": 1,
+      "robot_robot_collisions": 0,
+      "goals_reached": 2,
+      "pose_error": 2.7695206723272348,
+      "recovery_steps_remaining": 0,
+      "no_progress_steps": 4,
+      "wall_trap_hits": 0,
+      "last_collision_type": "wall",
+      "current_goal": null,
+      "true_goal_distance": null,
+      "true_pose": [
+        316.69517598497094,
+        218.06735263441342,
+        26.40232081034866
+      ],
+      "estimated_pose": [
+        316.7010368557787,
+        215.29783816349234,
+        1.1335077548478418
+      ]
+    }
+  ]
+}
