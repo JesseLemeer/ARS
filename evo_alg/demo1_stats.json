@@ -1,0 +1,35 @@
+{
+  "genome_file": "best_genome_staged.npy",
+  "duration_s": 10.0,
+  "fps": 60,
+  "start": [
+    0.0,
+    0.0
+  ],
+  "goal_order": [
+    [
+      318.0,
+      43.0
+    ],
+    [
+      278.0,
+      -203.0
+    ],
+    [
+      203.0,
+      -189.0
+    ],
+    [
+      94.0,
+      261.0
+    ],
+    [
+      -300.0,
+      100.0
+    ]
+  ],
+  "goals_reached": 0,
+  "total_goals": 5,
+  "collisions": 25,
+  "reaches": []
+}

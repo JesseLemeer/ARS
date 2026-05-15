@@ -1,0 +1,42 @@
+{
+  "Rastrigin": {
+    "EA": {
+      "mean_final": 19.688654313086253,
+      "std_final": 9.100758222690732,
+      "min_final": 8.006523810865616,
+      "max_final": 33.9269216693111
+    },
+    "EA_new_tournament": {
+      "mean_final": 11.325789556924565,
+      "std_final": 4.820666698210391,
+      "min_final": 4.059576092181757,
+      "max_final": 19.94365449227645
+    },
+    "EA_new_roulette": {
+      "mean_final": 11.061011972606758,
+      "std_final": 4.126443200899269,
+      "min_final": 4.621326481096091,
+      "max_final": 19.12233166037572
+    }
+  },
+  "Rosenbrock": {
+    "EA": {
+      "mean_final": 91.31530630264452,
+      "std_final": 112.14025496116462,
+      "min_final": 4.970728254397291,
+      "max_final": 297.1685867311307
+    },
+    "EA_new_tournament": {
+      "mean_final": 52.87382633045257,
+      "std_final": 48.331967888732684,
+      "min_final": 0.5286076937914238,
+      "max_final": 149.5070495818604
+    },
+    "EA_new_roulette": {
+      "mean_final": 52.47010475957471,
+      "std_final": 77.21309011059046,
+      "min_final": 7.414661374312871,
+      "max_final": 258.05100614764285
+    }
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "duration_per_genome_s": 15.0,
+  "fps": 60,
+  "start": [
+    0.0,
+    0.0
+  ],
+  "goal_order": [
+    [
+      0,
+      -250
+    ],
+    [
+      -300,
+      -300
+    ],
+    [
+      -250,
+      0
+    ],
+    [
+      -300,
+      300
+    ]
+  ],
+  "runs": [
+    {
+      "genome": "best_genome_goal.npy",
+      "goals_reached": 0,
+      "total_goals": 4,
+      "collisions": 0,
+      "reaches": []
+    },
+    {
+      "genome": "best_genome_goal2.npy",
+      "goals_reached": 0,
+      "total_goals": 4,
+      "collisions": 0,
+      "reaches": []
+    },
+    {
+      "genome": "best_genome_goal3.npy",
+      "goals_reached": 2,
+      "total_goals": 4,
+      "collisions": 2,
+      "reaches": [
+        {
+          "time": 6.05,
+          "goal_idx": 0,
+          "robot_position": [
+            -2.194085475927615,
+            -269.21467481545744
+          ]
+        },
+        {
+          "time": 10.55,
+          "goal_idx": 1,
+          "robot_position": [
+            -280.13473633794575,
+            -300.16407063264927
+          ]
+        }
+      ]
+    },
+    {
+      "genome": "best_genome_staged.npy",
+      "goals_reached": 1,
+      "total_goals": 4,
+      "collisions": 35,
+      "reaches": [
+        {
+          "time": 10.1,
+          "goal_idx": 0,
+          "robot_position": [
+            -16.42127436942604,
+            -261.1828552591084
+          ]
+        }
+      ]
+    },
+    {
+      "genome": "best_genome_staged_nomovement.npy",
+      "goals_reached": 4,
+      "total_goals": 4,
+      "collisions": 0,
+      "reaches": [
+        {
+          "time": 2.5166666666666666,
+          "goal_idx": 0,
+          "robot_position": [
+            -15.508414214496053,
+            -238.19313407595942
+          ]
+        },
+        {
+          "time": 5.533333333333333,
+          "goal_idx": 1,
+          "robot_position": [
+            -280.8037056231038,
+            -297.6340985203786
+          ]
+        },
+        {
+          "time": 9.8,
+          "goal_idx": 2,
+          "robot_position": [
+            -230.31868420686735,
+            -1.4095819013627124
+          ]
+        },
+        {
+          "time": 13.333333333333334,
+          "goal_idx": 3,
+          "robot_position": [
+            -284.39077673995445,
+            311.5712328825267
+          ]
+        }
+      ]
+    },
+    {
+      "genome": "best_genome_staged_second_attempt.npy",
+      "goals_reached": 2,
+      "total_goals": 4,
+      "collisions": 54,
+      "reaches": [
+        {
+          "time": 3.8833333333333333,
+          "goal_idx": 0,
+          "robot_position": [
+            -15.346231182260087,
+            -238.9666930196545
+          ]
+        },
+        {
+          "time": 8.95,
+          "goal_idx": 1,
+          "robot_position": [
+            -290.24654101156165,
+            -283.055201913726
+          ]
+        }
+      ]
+    }
+  ]
+}
