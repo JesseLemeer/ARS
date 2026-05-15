@@ -162,7 +162,7 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
     _, wall, corner = best
     return True, wall, corner
 
-# Safely push the robot away from wall/corner contact
+# Safely push the robot away from wall/corner contact - updated during swarm intelligence
 def resolve_wall_normal_response(rx, ry, rtheta, length, width, walls,
                                  margin=2.0, push_step=2.0, iterations=12):
     resolved = False
