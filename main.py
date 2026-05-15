@@ -153,7 +153,7 @@ while running:
             est_sig_yy = slam_sigma[1, 1]
             est_sig_xy = slam_sigma[0, 1]
         else:       
-            ekf_mu, ekf_sigma_mat = kf.ekf_filter(
+            ekf_mu, ekf_sigma_mat = kf.ekf(
                 ekf_est_x, ekf_est_y, ekf_est_theta,
                 ekf_sigma_mat, ekf_sigma_R, ekf_sigma_Q,
                 mm.v, mm.omega, mm.dt,

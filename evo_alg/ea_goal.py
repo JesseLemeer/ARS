@@ -141,7 +141,7 @@ def evaluate(genome, controller,goal_x= GOAL_X, goal_y= GOAL_Y):
         eff_v = 0.0 if hit else mm.v
         eff_omega = 0.0 if hit else mm.omega
         lm_meas = mm.get_landmark_measurements(landmark_groups)
-        mu_bar, sigma_mat = kf.ekf_filter(est_x, est_y, est_theta, sigma_mat,SIGMA_R, SIGMA_Q, eff_v, eff_omega, DT, lm_meas,)
+        mu_bar, sigma_mat = kf.ekf(est_x, est_y, est_theta, sigma_mat,SIGMA_R, SIGMA_Q, eff_v, eff_omega, DT, lm_meas,)
         est_x = float(mu_bar[0, 0])
         est_y = float(mu_bar[1, 0])
         est_theta = float(mu_bar[2, 0])

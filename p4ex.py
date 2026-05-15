@@ -382,7 +382,7 @@ def filter_step(exp_index: int, state: dict,
                 float(sigma[0, 0]), float(sigma[1, 1]), float(sigma[0, 1]))
 
     elif ftype == "ekf":
-        mu, sigma = kf.ekf_filter(
+        mu, sigma = kf.ekf(
             state["x"], state["y"], state["theta"],
             state["sigma"], state["sigma_R"], state["sigma_Q"],
             v, omega, dt, measurements,
