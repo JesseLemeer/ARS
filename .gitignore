@@ -5,5 +5,8 @@ settings.json
 __pycache__/
 *.pyc
 *.pyo
-*.json
+best_genome/
+swarm_experiment_plots/
+swarm_experiment_results/
+swarm_metrics/
 .venv/

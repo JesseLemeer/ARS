@@ -32,9 +32,8 @@ from evo_alg.ea_navigation import (
 )
 
 # Usage:
-#   python -m evo_alg.swarm_watch
-#   python -m evo_alg.swarm_watch evo_alg/best_genome_goal3.npy
-#   python -m evo_alg.swarm_watch evo_alg/best_genome_staged.npy
+#   python -m evo_alg.swarm_watch_aco
+#   python -m evo_alg.swarm_watch_aco evo_alg/best_genome_staged.npy
 GENOME_FILE = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_staged.npy")
 
 DT = 0.05
@@ -87,7 +86,7 @@ N_INPUTS = N_SENSORS + N_GOAL_INPUTS
 N_OUTPUTS = 2
 
 MAP_W, MAP_H = 1000, 780
-PANEL_W = 360
+PANEL_W = 520
 SCREEN_W, SCREEN_H = MAP_W + PANEL_W, MAP_H
 CAMERA_X, CAMERA_Y = -70.0, 0.0
 
@@ -102,6 +101,19 @@ TASK_GOALS = [
     (-241, -238),
     (318, 43),
 ]
+
+# ACO-inspired goal allocation extension.
+# This is NOT path planning. It only changes goal selection preference.
+ACO_ALPHA = 1.0          # pheromone influence
+ACO_BETA = 1.0           # distance influence
+PHEROMONE_INIT = 1.0
+PHEROMONE_MIN = 0.2
+PHEROMONE_MAX = 3.0
+PHEROMONE_EVAPORATION = 0.9995
+PHEROMONE_DEPOSIT = 0.35
+PHEROMONE_NEIGHBOUR_RADIUS = 180.0
+
+GOAL_PHEROMONE = {g: PHEROMONE_INIT for g in TASK_GOALS}
 
 # Updated start poses. The previous (80, 120) pose could place a robot inside
 # a closed rectangular region in this map. These starts are in open corridor areas
@@ -255,6 +267,7 @@ def make_robot(robot_id: int, pose, shared_grid, walls, landmark_groups) -> Swar
 
 
 def reset_swarm(walls, landmark_groups):
+    reset_pheromones()
     shared_grid = make_shared_grid()
     robots = [
         make_robot(i, START_POSES[i], shared_grid, walls, landmark_groups)
@@ -284,6 +297,34 @@ def assign_initial_goals(robots: list[SwarmRobot], reached_goals: set[tuple[floa
     for robot in robots:
         assign_next_goal(robot, robots, reached_goals)
 
+def reset_pheromones() -> None:
+    for g in TASK_GOALS:
+        GOAL_PHEROMONE[g] = PHEROMONE_INIT
+
+def evaporate_pheromones() -> None:
+    for g in TASK_GOALS:
+        GOAL_PHEROMONE[g] = max(PHEROMONE_MIN, GOAL_PHEROMONE[g] * PHEROMONE_EVAPORATION)
+
+
+def deposit_goal_pheromone(goal: tuple[float, float]) -> None:
+    """Deposit pheromone around a completed goal.
+
+    Nearby goals become slightly more attractive, similar to ants reinforcing
+    useful regions. Reached goals are still blocked, so this does not make robots
+    repeat the same goal.
+    """
+    for g in TASK_GOALS:
+        d = math.hypot(g[0] - goal[0], g[1] - goal[1])
+        if d <= PHEROMONE_NEIGHBOUR_RADIUS:
+            strength = PHEROMONE_DEPOSIT * (1.0 - d / PHEROMONE_NEIGHBOUR_RADIUS)
+            GOAL_PHEROMONE[g] = min(PHEROMONE_MAX, GOAL_PHEROMONE[g] + strength)
+
+
+def aco_goal_score(robot: SwarmRobot, goal: tuple[float, float]) -> float:
+    distance = math.hypot(robot.x - goal[0], robot.y - goal[1])
+    pheromone = max(PHEROMONE_MIN, GOAL_PHEROMONE.get(goal, PHEROMONE_INIT))
+
+    return (distance ** ACO_BETA) / (pheromone ** ACO_ALPHA)
 
 def assign_next_goal(robot: SwarmRobot, robots: list[SwarmRobot], reached_goals: set[tuple[float, float]]) -> None:
     """Choose nearest unvisited/unassigned goal using TRUE pose.
@@ -314,7 +355,7 @@ def assign_next_goal(robot: SwarmRobot, robots: list[SwarmRobot], reached_goals:
     ]
 
     usable = spaced_candidates if spaced_candidates else candidates
-    robot.goal = min(usable, key=lambda g: math.hypot(robot.x - g[0], robot.y - g[1]))
+    robot.goal = min(usable, key=lambda g: aco_goal_score(robot, g))
     robot.best_goal_distance = float("inf")
     robot.no_progress_steps = 0
     robot.previous_goal = robot.goal
@@ -773,6 +814,7 @@ def update_one_robot(robot: SwarmRobot, robots: list[SwarmRobot], controller, ge
     goal_dist_true = math.hypot(robot.x - robot.goal[0], robot.y - robot.goal[1])
     if goal_dist_true < GOAL_RADIUS:
         reached_goals.add(robot.goal)
+        deposit_goal_pheromone(robot.goal)
         robot.goals_reached += 1
         assign_next_goal(robot, robots, reached_goals)
     else:
@@ -872,7 +914,7 @@ def save_metrics(robots: list[SwarmRobot], shared_grid: OccupancyGrid, reached_g
         ],
     }
 
-    out_path = BASE_DIR / "swarm_metrics_latest.json"
+    out_path = BASE_DIR / "swarm_metrics_aco.json"
     with open(out_path, "w") as fh:
         json.dump(metrics, fh, indent=2)
     print(f"Saved swarm metrics → {out_path}")
@@ -880,7 +922,11 @@ def save_metrics(robots: list[SwarmRobot], shared_grid: OccupancyGrid, reached_g
 
 
 def draw_info_panel(screen, font, hidden, step, robots, reached_goals) -> None:
-    """Draw the status text in a right-side panel instead of over the map."""
+    """Draw status text in a right-side panel using two columns.
+
+    Left column: swarm + robot information.
+    Right column: ACO pheromone information.
+    """
     panel_x = MAP_W
     pygame.draw.rect(screen, (245, 245, 245), (panel_x, 0, PANEL_W, SCREEN_H))
     pygame.draw.line(screen, BLACK, (panel_x, 0), (panel_x, SCREEN_H), 2)
@@ -897,6 +943,7 @@ def draw_info_panel(screen, font, hidden, step, robots, reached_goals) -> None:
     else:
         explored = 0
 
+    # Left column: general swarm + per-robot details.
     lines = [
         ("SWARM STATUS", True),
         (f"Controller: {N_INPUTS}->{hidden}->{N_OUTPUTS}", False),
@@ -927,14 +974,31 @@ def draw_info_panel(screen, font, hidden, step, robots, reached_goals) -> None:
         ])
 
     y = 18
+    left_x = panel_x + 14
     for text, bold in lines:
         if text == "":
             y += 10
             continue
         colour = BLACK if bold else (35, 35, 35)
         surf = font.render(text, True, colour)
-        screen.blit(surf, (panel_x + 14, y))
+        screen.blit(surf, (left_x, y))
         y += 23 if bold else 20
+
+    # Right column: ACO-specific pheromone values.
+    aco_x = panel_x + 300
+    aco_y = 18
+
+    surf = font.render("ACO PHEROMONES", True, BLACK)
+    screen.blit(surf, (aco_x, aco_y))
+    aco_y += 24
+
+    for i, g in enumerate(TASK_GOALS):
+        pher = GOAL_PHEROMONE.get(g, PHEROMONE_INIT)
+        status = "done" if g in reached_goals else "open"
+        line = f"G{i}: {pher:.2f} {status}"
+        surf = font.render(line, True, (35, 35, 35))
+        screen.blit(surf, (aco_x, aco_y))
+        aco_y += 20
 
 def main():
     try:
@@ -963,7 +1027,7 @@ def main():
 
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Swarm Intelligence")
+    pygame.display.set_caption("Swarm Intelligence — ACO Goal Allocation Experiment")
     font = pygame.font.SysFont(None, 20)
     clock = pygame.time.Clock()
 
@@ -990,6 +1054,8 @@ def main():
                     simulation_complete = False
 
         if not simulation_complete:
+            evaporate_pheromones()
+
             for robot in robots:
                 update_one_robot(robot, robots, controller, genome, walls, landmark_groups, reached_goals)
 
@@ -1015,8 +1081,14 @@ def main():
             pygame.draw.line(screen, BLACK, world_to_screen(*seg[0]), world_to_screen(*seg[1]), 2)
 
         for goal in TASK_GOALS:
+            pher = GOAL_PHEROMONE.get(goal, PHEROMONE_INIT)
             color = GREY if goal in reached_goals else RED
             gx, gy = world_to_screen(*goal)
+
+            # ACO visualization: stronger pheromone = larger outer circle
+            pher_radius = int(GOAL_RADIUS + 8 * pher)
+            pygame.draw.circle(screen, (0, 150, 0), (gx, gy), pher_radius, 1)
+
             pygame.draw.circle(screen, color, (gx, gy), int(GOAL_RADIUS), 2)
             pygame.draw.line(screen, color, (gx - 5, gy), (gx + 5, gy), 2)
             pygame.draw.line(screen, color, (gx, gy - 5), (gx, gy + 5), 2)
