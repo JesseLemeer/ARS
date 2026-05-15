@@ -33,7 +33,7 @@ from evo_alg.ea_navigation import (
     update_navigation,
 )
 
-GENOME_FILE = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_staged_second_attempt.npy")
+GENOME_FILE = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome" / "best_genome_latest_staged.npy")
 
 DT = 0.05
 CAR_LENGTH = 24
