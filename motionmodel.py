@@ -162,6 +162,63 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
     _, wall, corner = best
     return True, wall, corner
 
+# Safely push the robot away from wall/corner contact
+def resolve_wall_normal_response(rx, ry, rtheta, length, width, walls,
+                                 margin=2.0, push_step=2.0, iterations=12):
+    resolved = False
+
+    for _ in range(iterations):
+        current_crossing = _any_edge_crossing(rx, ry, rtheta, length, width, walls)
+        normals = get_all_collisions(
+            rx, ry, rtheta, length, width, walls,
+            margin=margin,
+            ref_point=(rx, ry),
+        )
+
+        if not normals and not current_crossing:
+            break
+
+        if normals:
+            nx = sum(n[0] for n in normals)
+            ny = sum(n[1] for n in normals)
+        else:
+            nearest_wall = min(
+                walls,
+                key=lambda w: get_distance_to_segment(
+                    rx, ry, w[0][0], w[0][1], w[1][0], w[1][1]
+                ),
+            )
+            nx, ny = wall_normal_for_point(nearest_wall, rx, ry)
+
+        norm = math.hypot(nx, ny)
+        if norm < EPS:
+            break
+        nx /= norm
+        ny /= norm
+
+        accepted = False
+        step = push_step
+
+        for _attempt in range(6):
+            cand_x = rx + nx * step
+            cand_y = ry + ny * step
+
+            if not _any_edge_crossing(cand_x, cand_y, rtheta, length, width, walls):
+                rx, ry = cand_x, cand_y
+                resolved = True
+                accepted = True
+                break
+
+            step *= 0.5
+
+        if not accepted:
+            break
+
+    if _any_edge_crossing(rx, ry, rtheta, length, width, walls):
+        return rx, ry, False
+
+    return rx, ry, resolved
+
 def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width,iterations=8):
     collision_happened = False
     ref = (px, py)
@@ -230,12 +287,18 @@ def update(walls, length, width):
             theta = new_theta
         else:
             collision_occurred = True
+            x, y, _ = resolve_wall_normal_response(
+                x, y, theta, length, width, walls
+            )
 
         new_x, new_y, trans_collided = resolve_sliding(
             x, y, theta, step_dx, step_dy, walls, length, width)
         x, y = new_x, new_y
         if trans_collided:
             collision_occurred = True
+            x, y, _ = resolve_wall_normal_response(
+                x, y, theta, length, width, walls
+            )
 
     return collision_occurred
 

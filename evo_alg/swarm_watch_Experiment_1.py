@@ -31,23 +31,23 @@ from evo_alg.ea_navigation import (
     update_navigation,
 )
 
-GENOME_FILE = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome" / "best_genome_staged.npy")
+GENOME_FILE = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_staged_second_attempt.npy")
 
 DT = 0.05
 CAR_LENGTH = 24
 CAR_WIDTH = 14
 
-MAX_V = 100.0
+MAX_V = 70.0
 MAX_OMEGA = 5.0
 
 N_ROBOTS = 4
 TRAIL_LEN = 250
 GOAL_RADIUS = 25.0
 
-# Workload balancing: after this many goals, a robot stops taking new goals.
+# Workload balancing: after 3 goals, a robot stops taking new goals.
 MAX_GOALS_PER_ROBOT = 3
 
-# Safety recovery layer
+# Recovery related
 RECOVERY_STEPS = 45
 RECOVERY_COOLDOWN_STEPS = 35
 STUCK_WINDOW_SWARM = 80
@@ -81,7 +81,7 @@ N_INPUTS = N_SENSORS + N_GOAL_INPUTS
 N_OUTPUTS = 2
 
 MAP_W, MAP_H = 1000, 780
-PANEL_W = 520
+PANEL_W = 360
 SCREEN_W, SCREEN_H = MAP_W + PANEL_W, MAP_H
 CAMERA_X, CAMERA_Y = -70.0, 0.0
 
@@ -96,18 +96,6 @@ TASK_GOALS = [
     (-241, -238),
     (318, 43),
 ]
-
-# ACO-inspired goal allocation extension.
-ACO_ALPHA = 1.0
-ACO_BETA = 1.0
-PHEROMONE_INIT = 1.0
-PHEROMONE_MIN = 0.2
-PHEROMONE_MAX = 3.0
-PHEROMONE_EVAPORATION = 0.9995
-PHEROMONE_DEPOSIT = 0.35
-PHEROMONE_NEIGHBOUR_RADIUS = 180.0
-
-GOAL_PHEROMONE = {g: PHEROMONE_INIT for g in TASK_GOALS}
 
 START_POSES = [
     (-200.0, 0.0, 0.0),
@@ -161,6 +149,9 @@ class SwarmRobot:
     best_goal_distance: float = float("inf")
     no_progress_steps: int = 0
     previous_goal: tuple[float, float] | None = None
+    active_steps: int = 0
+    stopped_at_step: int | None = None
+    stop_reason: str = "active"
     wall_trap_anchor: tuple[float, float] | None = None
     wall_trap_hits: int = 0
 
@@ -237,7 +228,6 @@ def make_robot(robot_id: int, pose, shared_grid, walls, landmark_groups) -> Swar
     return robot
 
 def reset_swarm(walls, landmark_groups):
-    reset_pheromones()
     shared_grid = make_shared_grid()
     robots = [
         make_robot(i, START_POSES[i], shared_grid, walls, landmark_groups)
@@ -260,31 +250,8 @@ def assign_initial_goals(robots: list[SwarmRobot], reached_goals: set[tuple[floa
     for robot in robots:
         assign_next_goal(robot, robots, reached_goals)
 
-def reset_pheromones() -> None:
-    for g in TASK_GOALS:
-        GOAL_PHEROMONE[g] = PHEROMONE_INIT
-
-def evaporate_pheromones() -> None:
-    for g in TASK_GOALS:
-        GOAL_PHEROMONE[g] = max(PHEROMONE_MIN, GOAL_PHEROMONE[g] * PHEROMONE_EVAPORATION)
-
-
-def deposit_goal_pheromone(goal: tuple[float, float]) -> None:
-    for g in TASK_GOALS:
-        d = math.hypot(g[0] - goal[0], g[1] - goal[1])
-        if d <= PHEROMONE_NEIGHBOUR_RADIUS:
-            strength = PHEROMONE_DEPOSIT * (1.0 - d / PHEROMONE_NEIGHBOUR_RADIUS)
-            GOAL_PHEROMONE[g] = min(PHEROMONE_MAX, GOAL_PHEROMONE[g] + strength)
-
-
-def aco_goal_score(robot: SwarmRobot, goal: tuple[float, float]) -> float:
-    distance = math.hypot(robot.x - goal[0], robot.y - goal[1])
-    pheromone = max(PHEROMONE_MIN, GOAL_PHEROMONE.get(goal, PHEROMONE_INIT))
-
-    return (distance ** ACO_BETA) / (pheromone ** ACO_ALPHA)
 
 def assign_next_goal(robot: SwarmRobot, robots: list[SwarmRobot], reached_goals: set[tuple[float, float]]) -> None:
-    # Workload balancing.
     if robot.goals_reached >= MAX_GOALS_PER_ROBOT:
         robot.goal = None
         return
@@ -303,7 +270,7 @@ def assign_next_goal(robot: SwarmRobot, robots: list[SwarmRobot], reached_goals:
     ]
 
     usable = spaced_candidates if spaced_candidates else candidates
-    robot.goal = min(usable, key=lambda g: aco_goal_score(robot, g))
+    robot.goal = min(usable, key=lambda g: math.hypot(robot.x - g[0], robot.y - g[1]))
     robot.best_goal_distance = float("inf")
     robot.no_progress_steps = 0
     robot.previous_goal = robot.goal
@@ -335,7 +302,6 @@ def project_polygon(poly, axis):
     return min(dots), max(dots)
 
 def polygons_overlap(poly_a, poly_b) -> bool:
-    """Separating Axis Theorem for rectangle/polygon overlap."""
     for axis in polygon_axes(poly_a) + polygon_axes(poly_b):
         min_a, max_a = project_polygon(poly_a, axis)
         min_b, max_b = project_polygon(poly_b, axis)
@@ -360,7 +326,6 @@ def robot_pose_is_wall_safe(rx: float, ry: float, rtheta: float, walls) -> bool:
     if collided:
         return False
 
-    # Extra strict check: reject poses where a robot edge crosses a wall segment.
     if hasattr(mm, "_any_edge_crossing"):
         if mm._any_edge_crossing(rx, ry, rtheta, CAR_LENGTH, CAR_WIDTH, walls):
             return False
@@ -369,6 +334,7 @@ def robot_pose_is_wall_safe(rx: float, ry: float, rtheta: float, walls) -> bool:
 
 def set_robot_pose(robot: SwarmRobot, pose: tuple[float, float, float, float, float]) -> None:
     robot.x, robot.y, robot.theta, robot.v, robot.omega = pose
+
 
 def push_robot_away_from_other(robot: SwarmRobot, other: SwarmRobot, walls) -> bool:
     start_pose = (robot.x, robot.y, robot.theta, robot.v, robot.omega)
@@ -491,6 +457,7 @@ def apply_robot_robot_separation(robot: SwarmRobot, robots: list[SwarmRobot]) ->
         mm.v *= scale
         mm.omega += turn_away * 1.0
 
+
 def closest_obstacle_turn_sign(robot: SwarmRobot, raw_acts: np.ndarray) -> float:
     if raw_acts.size == 0:
         return 1.0 if robot.robot_id % 2 == 0 else -1.0
@@ -592,6 +559,7 @@ def update_corner_trap_state(robot: SwarmRobot, wall_hit: bool) -> None:
         robot.wall_trap_anchor = current
         robot.wall_trap_hits = 0
 
+
 def update_one_robot(robot: SwarmRobot, robots: list[SwarmRobot], controller, genome, walls, landmark_groups, reached_goals) -> None:
     if robot.goal is None:
         assign_next_goal(robot, robots, reached_goals)
@@ -643,7 +611,6 @@ def update_one_robot(robot: SwarmRobot, robots: list[SwarmRobot], controller, ge
     robot_hit = other_hit is not None
 
     if robot_hit:
-        # Revert first, then push away so cars cannot remain overlapped.
         robot.x, robot.y, robot.theta, robot.v, robot.omega = old_pose
         push_ok = False
         if other_hit is not None:
@@ -697,7 +664,6 @@ def update_one_robot(robot: SwarmRobot, robots: list[SwarmRobot], controller, ge
     goal_dist_true = math.hypot(robot.x - robot.goal[0], robot.y - robot.goal[1])
     if goal_dist_true < GOAL_RADIUS:
         reached_goals.add(robot.goal)
-        deposit_goal_pheromone(robot.goal)
         robot.goals_reached += 1
         assign_next_goal(robot, robots, reached_goals)
     else:
@@ -750,6 +716,7 @@ def draw_sensor_rays(screen, robot: SwarmRobot):
         alpha = int(robot.last_raw_acts[i] * 180)
         pygame.draw.line(screen, (alpha, alpha, 200), (sx, sy), world_to_screen(hx, hy), 1)
 
+
 def save_metrics(robots: list[SwarmRobot], shared_grid: OccupancyGrid, reached_goals, step: int):
     if robots:
         refresh_grid_stats(robots[0].nav_state)
@@ -791,15 +758,45 @@ def save_metrics(robots: list[SwarmRobot], shared_grid: OccupancyGrid, reached_g
         ],
     }
 
-    out_path = BASE_DIR / "swarm_metrics" / "swarm_metrics_aco.json"
+    out_path = BASE_DIR / "swarm_metrics" / "swarm_metrics_latest_genome.json"
     with open(out_path, "w") as fh:
         json.dump(metrics, fh, indent=2)
     print(f"Saved swarm metrics → {out_path}")
 
+def robot_goal_status(robot: SwarmRobot, reached_goals: set[tuple[float, float]]) -> str:
+    if robot.goal is not None:
+        return f"({robot.goal[0]:.0f},{robot.goal[1]:.0f})"
+
+    if robot.goals_reached >= MAX_GOALS_PER_ROBOT:
+        return "max goals reached"
+
+    if len(reached_goals) >= len(TASK_GOALS):
+        return "all goals done"
+
+    return "no free goals available"
+
 def draw_info_panel(screen, font, hidden, step, robots, reached_goals) -> None:
     panel_x = MAP_W
-    pygame.draw.rect(screen, (245, 245, 245), (panel_x, 0, PANEL_W, SCREEN_H))
+
+    PANEL_BG = (245, 245, 245)
+    CARD_BG = (255, 255, 255)
+    CARD_BORDER = (210, 210, 210)
+    TITLE = (20, 20, 20)
+    TEXT = (45, 45, 45)
+    MUTED = (95, 95, 95)
+    GREEN = (0, 135, 35)
+    BLUE = (25, 90, 180)
+    ORANGE_UI = (210, 110, 0)
+    RED_UI = (190, 20, 20)
+    PURPLE_UI = (120, 70, 180)
+
+    pygame.draw.rect(screen, PANEL_BG, (panel_x, 0, PANEL_W, SCREEN_H))
     pygame.draw.line(screen, BLACK, (panel_x, 0), (panel_x, SCREEN_H), 2)
+
+    # Fonts.
+    title_font = pygame.font.SysFont(None, 22, bold=True)
+    label_font = pygame.font.SysFont(None, 18)
+    small_font = pygame.font.SysFont(None, 18)
 
     total_collisions = sum(r.collisions for r in robots)
     wall_collisions = sum(r.wall_collisions for r in robots)
@@ -813,60 +810,73 @@ def draw_info_panel(screen, font, hidden, step, robots, reached_goals) -> None:
     else:
         explored = 0
 
-    lines = [
-        ("SWARM STATUS", True),
-        (f"Controller: {N_INPUTS}->{hidden}->{N_OUTPUTS}", False),
-        (f"Step: {step}", False),
-        (f"Goals reached: {len(reached_goals)}/{len(TASK_GOALS)}", False),
-        (f"Explored cells: {explored}", False),
-        ("", False),
-        ("COLLISIONS", True),
-        (f"Total: {total_collisions}", False),
-        (f"Walls: {wall_collisions}", False),
-        (f"Car-car: {robot_collisions}", False),
-        (f"Recovery active: {recovery_active}", False),
-        (f"Avg pose error: {avg_pose_error:.1f}", False),
-        ("", False),
-        ("ROBOTS", True),
-    ]
+    def draw_card(x, y, w, h):
+        pygame.draw.rect(screen, CARD_BG, (x, y, w, h), border_radius=8)
+        pygame.draw.rect(screen, CARD_BORDER, (x, y, w, h), 1, border_radius=8)
+
+    def draw_text(text, x, y, colour=TEXT, font_obj=None):
+        if font_obj is None:
+            font_obj = small_font
+        surf = font_obj.render(str(text), True, colour)
+        screen.blit(surf, (x, y))
+
+    margin = 12
+    gap = 10
+    card_w = (PANEL_W - 2 * margin - gap) // 2
+    top_y = 14
+    top_h = 135
+
+    status_x = panel_x + margin
+    coll_x = status_x + card_w + gap
+
+    draw_card(status_x, top_y, card_w, top_h)
+    draw_card(coll_x, top_y, card_w, top_h)
+
+    draw_text("SWARM", status_x + 10, top_y + 10, TITLE, title_font)
+    draw_text(f"Controller: {N_INPUTS}->{hidden}->{N_OUTPUTS}", status_x + 10, top_y + 38)
+    draw_text(f"Step: {step}", status_x + 10, top_y + 58, BLUE)
+    draw_text(f"Goals: {len(reached_goals)}/{len(TASK_GOALS)}", status_x + 10, top_y + 78, GREEN, label_font)
+    draw_text(f"Explored: {explored}", status_x + 10, top_y + 100)
+
+    draw_text("COLLISIONS", coll_x + 10, top_y + 10, TITLE, title_font)
+    draw_text(f"Total: {total_collisions}", coll_x + 10, top_y + 38, RED_UI if total_collisions > 0 else GREEN)
+    draw_text(f"Walls: {wall_collisions}", coll_x + 10, top_y + 58, RED_UI if wall_collisions > 0 else GREEN)
+    draw_text(f"Car-car: {robot_collisions}", coll_x + 10, top_y + 78, RED_UI if robot_collisions > 0 else GREEN)
+    draw_text(f"Recovery: {recovery_active}", coll_x + 10, top_y + 98, ORANGE_UI if recovery_active > 0 else GREEN)
+    draw_text(f"Pose err: {avg_pose_error:.1f}", coll_x + 10, top_y + 118, PURPLE_UI)
+
+    section_y = top_y + top_h + 14
+    draw_text("ROBOT PROGRESS", panel_x + margin, section_y, TITLE, title_font)
+
+    robot_card_x = panel_x + margin
+    robot_card_w = PANEL_W - 2 * margin
+    robot_card_h = 132
+    y = section_y + 26
 
     for r in robots:
-        goal_text = "None" if r.goal is None else f"({r.goal[0]:.0f},{r.goal[1]:.0f})"
+        draw_card(robot_card_x, y, robot_card_w, robot_card_h)
+
+        goal_text = robot_goal_status(r, reached_goals)
         true_d = 0.0 if r.goal is None else math.hypot(r.x - r.goal[0], r.y - r.goal[1])
-        lines.extend([
-            (f"R{r.robot_id} goal {goal_text}", True),
-            (f"  dist={true_d:.0f} reached={r.goals_reached}", False),
-            (f"  wall={r.wall_collisions} car={r.robot_collisions}", False),
-            (f"  pose_err={r.pose_error:.1f}", False),
-            (f"  rec={r.recovery_steps} last={r.last_collision_type}", False),
-            (f"  no_prog={r.no_progress_steps} trap={r.wall_trap_hits}", False),
-        ])
 
-    y = 18
-    left_x = panel_x + 14
-    for text, bold in lines:
-        if text == "":
-            y += 10
-            continue
-        colour = BLACK if bold else (35, 35, 35)
-        surf = font.render(text, True, colour)
-        screen.blit(surf, (left_x, y))
-        y += 23 if bold else 20
+        if r.stopped_at_step is None:
+            step_text = f"active steps: {r.active_steps}"
+            step_colour = BLUE
+        else:
+            step_text = f"stopped at: {r.stopped_at_step}"
+            step_colour = PURPLE_UI
 
-    aco_x = panel_x + 300
-    aco_y = 18
+        draw_text(f"R{r.robot_id}", robot_card_x + 10, y + 8, TITLE, title_font)
+        draw_text(goal_text, robot_card_x + 48, y + 10, GREEN, label_font)
 
-    surf = font.render("ACO PHEROMONES", True, BLACK)
-    screen.blit(surf, (aco_x, aco_y))
-    aco_y += 24
+        draw_text(f"reached: {r.goals_reached}   dist: {true_d:.0f}", robot_card_x + 10, y + 36, TEXT)
+        draw_text(step_text, robot_card_x + 10, y + 56, step_colour, label_font)
+        draw_text(f"wall: {r.wall_collisions}   car: {r.robot_collisions}", robot_card_x + 10, y + 78, RED_UI if (r.wall_collisions + r.robot_collisions) > 0 else GREEN)
+        draw_text(f"pose err: {r.pose_error:.1f}", robot_card_x + 175, y + 78, PURPLE_UI)
+        draw_text(f"rec: {r.recovery_steps}   last: {r.last_collision_type}", robot_card_x + 10, y + 100, ORANGE_UI if r.recovery_steps > 0 else MUTED)
+        draw_text(f"no_prog: {r.no_progress_steps}   trap: {r.wall_trap_hits}", robot_card_x + 175, y + 100, MUTED)
 
-    for i, g in enumerate(TASK_GOALS):
-        pher = GOAL_PHEROMONE.get(g, PHEROMONE_INIT)
-        status = "done" if g in reached_goals else "open"
-        line = f"G{i}: {pher:.2f} {status}"
-        surf = font.render(line, True, (35, 35, 35))
-        screen.blit(surf, (aco_x, aco_y))
-        aco_y += 20
+        y += robot_card_h + 8
 
 def main():
     try:
@@ -895,7 +905,7 @@ def main():
 
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Swarm Intelligence — ACO Goal Allocation Experiment")
+    pygame.display.set_caption("Swarm Intelligence — Faster Genome - Experiment:1")
     font = pygame.font.SysFont(None, 20)
     clock = pygame.time.Clock()
 
@@ -922,10 +932,16 @@ def main():
                     simulation_complete = False
 
         if not simulation_complete:
-            evaporate_pheromones()
-
             for robot in robots:
+                was_active = robot.goal is not None
                 update_one_robot(robot, robots, controller, genome, walls, landmark_groups, reached_goals)
+
+                if was_active:
+                    robot.active_steps += 1
+
+                if robot.goal is None and robot.stopped_at_step is None:
+                    robot.stopped_at_step = step
+                    robot.stop_reason = robot_goal_status(robot, reached_goals)
 
             step += 1
 
@@ -949,14 +965,8 @@ def main():
             pygame.draw.line(screen, BLACK, world_to_screen(*seg[0]), world_to_screen(*seg[1]), 2)
 
         for goal in TASK_GOALS:
-            pher = GOAL_PHEROMONE.get(goal, PHEROMONE_INIT)
             color = GREY if goal in reached_goals else RED
             gx, gy = world_to_screen(*goal)
-
-            # ACO visualization: stronger pheromone = larger outer circle
-            pher_radius = int(GOAL_RADIUS + 8 * pher)
-            pygame.draw.circle(screen, (0, 150, 0), (gx, gy), pher_radius, 1)
-
             pygame.draw.circle(screen, color, (gx, gy), int(GOAL_RADIUS), 2)
             pygame.draw.line(screen, color, (gx - 5, gy), (gx + 5, gy), 2)
             pygame.draw.line(screen, color, (gx, gy - 5), (gx, gy + 5), 2)
