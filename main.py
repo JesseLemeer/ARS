@@ -11,36 +11,35 @@ from occupancygrid import OccupancyGrid
 pygame.init()
 
 ORANGE = (255, 77, 0)
-BLACK  = (0, 0, 0)
-BLUE   = (70, 130, 180)
-RED    = (200, 0, 0)
-GREEN  = (0, 200, 0)
-WHITE  = (255, 255, 255)
+BLACK = (0, 0, 0)
+BLUE = (70, 130, 180)
+RED = (200, 0, 0)
+GREEN = (0, 200, 0)
+WHITE = (255, 255, 255)
 LIGHT_GRAY = (210, 210, 230)
 LIGHT_GREEN = (190, 235, 190)
 
-OMEGA    = 5.0
+OMEGA = 5.0
 VELOCITY = 100.0
 CAR_LENGTH = 24
-CAR_WIDTH  = 14
+CAR_WIDTH =14
 
-KF_SIGMA_SQ_X      = 25.0
-KF_SIGMA_SQ_Y      = 25.0
+KF_SIGMA_SQ_X  = 25.0
+KF_SIGMA_SQ_Y = 25.0
 KF_SIGMA_SQ_THETA  = math.radians(10.0) ** 2
-KF_SIGMA_SQ_RX     = 2.0
-KF_SIGMA_SQ_RY     = 2.0
+KF_SIGMA_SQ_RX = 2.0
+KF_SIGMA_SQ_RY = 2.0
 KF_SIGMA_SQ_RTHETA = math.radians(2.0) ** 2
  
-KF_SIGMA_SQ_QX     = 16.0
-KF_SIGMA_SQ_QY     = 16.0
+KF_SIGMA_SQ_QX = 16.0
+KF_SIGMA_SQ_QY = 16.0
 KF_SIGMA_SQ_QTHETA = math.radians(8.0) ** 2
  
-# EKF-only noise (2x2 observation: range + bearing)
 EKF_SIGMA_SQ_R   = 4.0
 EKF_SIGMA_SQ_PHI = math.radians(3.0) ** 2
 
-SCREEN_WIDTH,  SCREEN_HEIGHT  = 800, 600
-WORLD_WIDTH,   WORLD_HEIGHT   = 1600, 1600
+SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
+WORLD_WIDTH, WORLD_HEIGHT = 1600, 1600
 TRAIL_LEN = 300
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -48,25 +47,26 @@ pygame.display.set_caption("ARS Group 21")
 clock = pygame.time.Clock()
 font  = pygame.font.SysFont(None, 20)
 
-# walls, landmarks = mp.create_map()
+#walls, landmarks = mp.create_map()
 walls, landmarks, landmark_groups = mp.create_map()
 obstacles = walls + landmarks
 
+#Known initial pose and initialize covariance matrices for KF and EKF
 kf_est_x = mm.x
 kf_est_y = mm.y
 kf_est_theta = mm.theta
-kf_sigma_mat = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
+kf_sigma = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
                                                                                                                                                                                                                                                                                                                                                             
 ekf_est_x = mm.x
 ekf_est_y = mm.y
 ekf_est_theta = mm.theta
-ekf_sigma_mat = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
+ekf_sigma = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
 ekf_sigma_R = np.diag([KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA])
 ekf_sigma_Q = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
 
-slam_mu = np.array([mm.x, mm.y, mm.theta])   # grows as landmarks discovered
+slam_mu = np.array([mm.x, mm.y, mm.theta])   
 slam_sigma = np.diag([KF_SIGMA_SQ_X, KF_SIGMA_SQ_Y, KF_SIGMA_SQ_THETA])
-slam_landmark_index = {}  # {landmark_id -> state index}
+slam_landmark_index = {}  #Keeps track of seen landmarks for the state
 
 ekf_sigma_Q_slam = np.diag([EKF_SIGMA_SQ_R, EKF_SIGMA_SQ_PHI])
 
@@ -83,9 +83,16 @@ grid = OccupancyGrid(
     l_max=5.0,
     l_min=-5.0,
 )
-show_map = True # toggle with M key
-ekf = True #switches between ekf and kf
+
+#Show or get rid of occupancy grid map
+show_map = True 
+
+#Switch between EKF and KF
+ekf = True 
+
+#Switch between SLAM and not using SLAM
 slam = False
+
 running = True
 while running:
     for event in pygame.event.get():
@@ -93,49 +100,59 @@ while running:
             running = False
 
         elif event.type == pygame.KEYDOWN:
-            # M → toggle map overlay
+            #Inverses show_map when M key is pressed
             if event.key == pygame.K_m:
                 show_map = not show_map
-    # Robot Movement
+                
+    #Robot movement with keys
     keys = pygame.key.get_pressed()
-    if   keys[pygame.K_LEFT]:  mm.omega =  OMEGA
-    elif keys[pygame.K_RIGHT]: mm.omega = -OMEGA
-    else:                       mm.omega =  0.0
+    if keys[pygame.K_LEFT]: 
+        mm.omega = OMEGA
+    elif keys[pygame.K_RIGHT]:
+        mm.omega = -OMEGA
+    else: 
+        mm.omega =  0.0
 
-    if   keys[pygame.K_UP]:   mm.v =  VELOCITY
-    elif keys[pygame.K_DOWN]: mm.v = -VELOCITY
-    else:                      mm.v =  0.0
+    if keys[pygame.K_UP]:
+        mm.v =  VELOCITY
+    elif keys[pygame.K_DOWN]:
+        mm.v = -VELOCITY
+    else:
+        mm.v =  0.0
 
-    mm.dt      = clock.tick(60) / 1000
+    mm.dt = clock.tick(60) / 1000
     collisions = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
 
-    # Sensor Readings
-    landmark_measurements = mm.get_landmark_measurements(landmark_groups) # For Kalman filter correction step
-    wall_sensor_readings = mm.get_sensor_readings(walls) # For Occupancy grid mapping
+    #Sensor readings
+    landmark_measurements = mm.get_landmark_measurements(landmark_groups)
+    wall_sensor_readings = mm.get_sensor_readings(walls) 
 
+    #Keeps track of trajectory, first position vanishes for TRAIL_LEN
     true_trail.append((mm.x, mm.y))
     if len(true_trail) > TRAIL_LEN:
         true_trail.pop(0)
 
+    #Use KF if EKF is not true
     if not ekf:
-        kf_mu, kf_sigma_mat = kf.kalman_filter(
+        kf_mu, kf_sigma = kf.kalman_filter(
             kf_est_x, kf_est_y, kf_est_theta,
-            kf_sigma_mat,
+            kf_sigma,
             KF_SIGMA_SQ_RX, KF_SIGMA_SQ_RY, KF_SIGMA_SQ_RTHETA,
             KF_SIGMA_SQ_QX, KF_SIGMA_SQ_QY, KF_SIGMA_SQ_QTHETA,
             mm.v, mm.omega, mm.dt,
             landmark_measurements,
         )
-        kf_est_x    = float(kf_mu[0, 0])
-        kf_est_y    = float(kf_mu[1, 0])
+        kf_est_x = float(kf_mu[0, 0])
+        kf_est_y = float(kf_mu[1, 0])
         kf_est_theta = float(kf_mu[2, 0])
 
-        est_x      = kf_est_x
-        est_y      = kf_est_y
-        est_theta  = kf_est_theta
-        est_sig_xx = float(kf_sigma_mat[0, 0])
-        est_sig_yy = float(kf_sigma_mat[1, 1])
-        est_sig_xy = float(kf_sigma_mat[0, 1])
+        est_x = kf_est_x
+        est_y = kf_est_y
+        est_theta = kf_est_theta
+        est_sig_xx = float(kf_sigma[0, 0])
+        est_sig_yy = float(kf_sigma[1, 1])
+        est_sig_xy = float(kf_sigma[0, 1])
+    #Check for slam if using EKF
     else:
         if slam:
             slam_mu, slam_sigma, slam_landmark_index = kf.ekf_slam(
@@ -146,16 +163,17 @@ while running:
                 landmark_measurements,
                 slam_landmark_index
             )
-            est_x     = slam_mu[0]
-            est_y     = slam_mu[1]
+            est_x = slam_mu[0]
+            est_y = slam_mu[1]
             est_theta = slam_mu[2]
             est_sig_xx = slam_sigma[0, 0]
             est_sig_yy = slam_sigma[1, 1]
             est_sig_xy = slam_sigma[0, 1]
+        #Otherwise just EKF, no SLAM
         else:       
-            ekf_mu, ekf_sigma_mat = kf.ekf_filter(
+            ekf_mu, ekf_sigma = kf.ekf(
                 ekf_est_x, ekf_est_y, ekf_est_theta,
-                ekf_sigma_mat, ekf_sigma_R, ekf_sigma_Q,
+                ekf_sigma, ekf_sigma_R, ekf_sigma_Q,
                 mm.v, mm.omega, mm.dt,
                 landmark_measurements,
             )
@@ -166,15 +184,16 @@ while running:
             est_x = ekf_est_x
             est_y = ekf_est_y
             est_theta = ekf_est_theta
-            est_sig_xx = float(ekf_sigma_mat[0, 0])
-            est_sig_yy = float(ekf_sigma_mat[1, 1])
-            est_sig_xy = float(ekf_sigma_mat[0, 1])
-        
+            est_sig_xx = float(ekf_sigma[0, 0])
+            est_sig_yy = float(ekf_sigma[1, 1])
+            est_sig_xy = float(ekf_sigma[0, 1])
+    
+    #Keep track of estimated trajectory, first position vanishes for TRAIL_LEN
     est_trail.append((est_x, est_y))
     if len(est_trail) > TRAIL_LEN:
         est_trail.pop(0)
         
-    # Occupancy grid update
+    #Occupancy grid map update
     grid.update(
         robot_x=est_x,
         robot_y=est_y,
@@ -183,10 +202,10 @@ while running:
         max_range=mm.SENSOR_MAX_RANGE,
     )
 
-    # Drawing
+    #Drawing
     screen.fill(WHITE)
 
-    # Occupancy grid
+    #Draw occupancy grid map
     if show_map:
         grid.draw(
             surface=screen,
@@ -197,7 +216,7 @@ while running:
             robot_y=mm.y,
         )
 
-    # Draw Walls and landmarks
+    #Draw walls and landmarks
     for obstacle in obstacles:
         s = mm.world_to_screen(obstacle[0][0], obstacle[0][1], SCREEN_WIDTH, SCREEN_HEIGHT)
         e = mm.world_to_screen(obstacle[1][0], obstacle[1][1], SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -208,20 +227,20 @@ while running:
     #Draw landmark sensor range (light green circle)
     pygame.draw.circle(screen, LIGHT_GREEN, (screen_x, screen_y), int(mm.LANDMARK_SENSOR_RANGE), 1)
 
-    # Draw trajectory (solid blue line)
+    #Draw trajectory (solid blue line)
     if len(true_trail) >= 2:
         trail_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
                      for px, py in true_trail]
         pygame.draw.lines(screen, BLUE, False, trail_pts, 2)
 
-    # Draw KF (estimated) trajectory trail (dashed orange)
+    #Draw estimated trajectory trail (dashed orange)
     if len(est_trail) >= 2:
         est_pts = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
                   for px, py in est_trail]
         for i in range(0, len(est_pts) - 1, 4):
             pygame.draw.line(screen, ORANGE, est_pts[i], est_pts[min(i+2, len(est_pts)-1)], 2)
 
-    # Wall sensor - shows what the mapping sensor sees
+    #Draw wall sensors
     for reading in wall_sensor_readings:
         hit_x, hit_y = reading["hit_point"]
         hit_sx, hit_sy = mm.world_to_screen(hit_x, hit_y, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -249,7 +268,7 @@ while running:
         )
         screen.blit(font.render(label, True, BLACK), (label_sx, label_sy))
 
-    # Draw actual (green/red) robot
+    #Draw robot (car), green as standard, red if colliding
     robot_color = GREEN if not collisions else RED
     car_corners_world  = mm.get_robot_corners(CAR_LENGTH, CAR_WIDTH)
     car_corners_screen = [mm.world_to_screen(px, py, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -273,7 +292,7 @@ while running:
     efx_s, efy_s = mm.world_to_screen(efx, efy, SCREEN_WIDTH, SCREEN_HEIGHT)
     pygame.draw.line(screen, ORANGE, (est_sx, est_sy), (efx_s, efy_s), 2)
 
-    # Draw COVARIANCE ELLIPSE around KF estimate
+    #Draw covariance ellipse around KF estimate
     draw_covariance_ellipse(
         surface = screen,
         kf_est_x = est_x,
@@ -290,19 +309,20 @@ while running:
         thickness = 2,
     )
 
-    # Compute live map statistics for display
-    total_cells    = grid.rows * grid.cols
+    #Compute live map statistics for display
+    total_cells = grid.rows * grid.cols
     occupied_cells = int(np.sum(grid.log_odds > 0.1))
-    free_cells     = int(np.sum(grid.log_odds < -0.1))
-    explored_pct   = 100.0 * (occupied_cells + free_cells) / total_cells
+    free_cells = int(np.sum(grid.log_odds < -0.1))
+    #explored_pct = 100.0 * (occupied_cells + free_cells) / total_cells
 
     visible_count = len(landmark_measurements)
     hud_lines = [
-        f"True:  x={mm.x:.1f}  y={mm.y:.1f}  θ={math.degrees(mm.theta) % 360:.1f}°",
-        f"KF:    x={est_x:.1f}  y={est_y:.1f}  θ={math.degrees(est_theta):.1f}°",
+        f"True: x={mm.x:.1f}  y={mm.y:.1f}  θ={math.degrees(mm.theta) % 360:.1f}°",
+        f"Estimated: x={est_x:.1f}  y={est_y:.1f}  θ={math.degrees(est_theta):.1f}°",
         f"Error: {math.hypot(mm.x-est_x, mm.y-est_y):.1f}  |  Landmarks visible: {visible_count}",
-        # f"σx²={est_sig_xx:.1f}  σy²={est_sig_yy:.1f}  (ellipse shows 2σ)",
     ]
+    
+    #Draw HUD
     for row, line in enumerate(hud_lines):
         surf = font.render(line, True, (20, 20, 20))
         screen.blit(surf, (8, 8 + row * 18))

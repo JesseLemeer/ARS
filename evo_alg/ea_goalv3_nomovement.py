@@ -157,8 +157,8 @@ def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_
         # EKF, assumes contact sensors allow detection of hitting wall
         eff_v = 0.0 if hit else mm.v
         eff_omega = 0.0 if hit else mm.omega
-        lm_meas = mm.get_landmark_measurements(landmark_groups)
-        mu_bar, sigma_mat = kf.ekf_filter(
+        lm_meas   = mm.get_landmark_measurements(landmark_groups)
+        mu_bar, sigma_mat = kf.ekf(
             est_x, est_y, est_theta, sigma_mat,
             SIGMA_R, SIGMA_Q, eff_v, eff_omega, DT, lm_meas,
         )

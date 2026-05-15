@@ -6,8 +6,9 @@ from itertools import combinations
 def normalize_angle(angle_rad):
     return (angle_rad + math.pi) % (2 * math.pi) - math.pi
 
-
+#Estimates pose from two landmark measurements
 def triangulation(measurement_a, measurement_b):
+    #Get measurements
     xa, ya = measurement_a["landmark_center"]
     xb, yb = measurement_b["landmark_center"]
     ra = measurement_a["distance"]
@@ -78,18 +79,22 @@ def triangulation(measurement_a, measurement_b):
 
 #If we observe several landmarks, we use the average pose estimated over all combinations of landmarks
 def get_estimated_pose(measurements, debug=True):
+    #If there is less than two landmarks visible, triangulation is not posile
     if len(measurements) < 2:
         return None
 
+    #Check all different combinations of two landmarks
     poses = []
     for measurement_a, measurement_b in combinations(measurements, 2):
         estimated_pose = triangulation(measurement_a, measurement_b)
         if estimated_pose is not None:
             poses.append(estimated_pose)
 
+    #If poses is empty, there is no pose estimation
     if not poses:
-        return None
+        return None 
 
+    #Average over all estimations
     x_avg = sum(pose[0] for pose in poses) / len(poses)
     y_avg = sum(pose[1] for pose in poses) / len(poses)
     theta_avg = normalize_angle(
@@ -100,16 +105,21 @@ def get_estimated_pose(measurements, debug=True):
     )
 
     if debug:
-        print(f"Estimated pose: X = {x_avg:.2f}, Y = {y_avg:.2f}, theta = {theta_avg:.3f} rad")
+        print(f"Estimated pose: X = {x_avg:.3f}, Y = {y_avg:.3f}, theta = {theta_avg:.3f} rad")
 
     return x_avg, y_avg, theta_avg
 
 
 def kalman_filter(x, y, theta, sigma_mat, sigma_sq_Rx, sigma_sq_Ry, sigma_sq_Rtheta, sigma_sq_Qx, sigma_sq_Qy, sigma_sq_Qtheta, v, omega, dt, measurements):
-    #prediction
+    #Prediction
+    #How to estimate effect of environment
     A = np.identity(3)
+    #Covariance matrix defining noise of motion model
     R = np.array([(sigma_sq_Rx,0,0),(0,sigma_sq_Ry,0),(0,0,sigma_sq_Rtheta)])
+    #How to control robot
     u = np.array([[v],[omega]])
+    
+    #How to estimate effect of control
     B = np.array([(dt*math.cos(theta),0),(dt*math.sin(theta),0),(0,dt)])
 
     mu_old = np.array([[x],[y],[normalize_angle(theta)]])
@@ -119,7 +129,7 @@ def kalman_filter(x, y, theta, sigma_mat, sigma_sq_Rx, sigma_sq_Ry, sigma_sq_Rth
     sigma_old = sigma_mat
     sigma_new_bar = A @ sigma_old @ A.T + R
     
-    #correction
+    #Correction
 
     #Return prediction if no pose can be estimated from measurements
     estimated_pose = get_estimated_pose(measurements, debug=False)
@@ -128,17 +138,21 @@ def kalman_filter(x, y, theta, sigma_mat, sigma_sq_Rx, sigma_sq_Ry, sigma_sq_Rth
 
     x_bar, y_bar, theta_bar = estimated_pose
 
+    #Maps the state to an observation
     C = np.eye(3)
+    #Covariance matrix defining noise of sensor model
     Q = np.array([(sigma_sq_Qx,0,0),(0,sigma_sq_Qy,0),(0,0,sigma_sq_Qtheta)])
 
     eps_x = np.random.normal(0, math.sqrt(sigma_sq_Qx))
     eps_y = np.random.normal(0, math.sqrt(sigma_sq_Qy))
     eps_theta = np.random.normal(0, math.sqrt(sigma_sq_Qtheta))
 
+    #Estimated pose with noise
     z = np.array([[x_bar + eps_x],
                   [y_bar + eps_y],
                   [normalize_angle(theta_bar + eps_theta)]])
 
+    #Kalman gain
     K = sigma_new_bar @ C.T @ np.linalg.inv(C@sigma_new_bar@C.T + Q)
 
     innovation = z - C @ mu_new_bar
@@ -150,8 +164,8 @@ def kalman_filter(x, y, theta, sigma_mat, sigma_sq_Rx, sigma_sq_Ry, sigma_sq_Rth
 
     return mu_new, sigma_new
 
-def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measurements):
-
+def ekf(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measurements):
+    #Prediction
     th = normalize_angle(theta)
  
     mu_bar = np.array([
@@ -159,7 +173,8 @@ def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measuremen
         [y + v * dt * math.sin(th)],
         [normalize_angle(th + omega * dt)],
     ])
- 
+    
+    #Jacobian of the motion model w.r.t. location
     G = np.array([
         [1.0, 0.0, -v * dt * math.sin(th)],
         [0.0, 1.0,  v * dt * math.cos(th)],
@@ -167,7 +182,8 @@ def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measuremen
     ])
  
     sigma_bar = G @ sigma_mat @ G.T + sigma_R
-
+    
+    #Correction for every measurement
     for reading in measurements:
         lx, ly = reading["landmark_center"]
  
@@ -179,25 +195,31 @@ def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measuremen
             continue
  
         sqrt_q = math.sqrt(q)
- 
+        
+        #Predicted measurement
         z_hat = np.array([
             [sqrt_q],
             [normalize_angle(math.atan2(dy, dx) - mu_bar[2, 0])],
         ])
- 
+
+        #Actual measurement
         z = np.array([
             [reading["distance"]],
             [normalize_angle(reading["bearing_rad"])],
         ])
- 
+    
+        #Jacobian of the measurement model w.r.t. location
         H = np.array([
             [-dx / sqrt_q, -dy / sqrt_q,  0.0],
             [ dy / q,      -dx / q,      -1.0],
         ])
- 
+
+        #Predicted measurement covariance
         S = H @ sigma_bar @ H.T + sigma_Q
+        #Kalman gain
         K = sigma_bar @ H.T @ np.linalg.inv(S)
  
+        #Difference between actual and predicted measurement
         innov = z - z_hat
         innov[1,0] = normalize_angle(innov[1, 0])
  
@@ -207,6 +229,8 @@ def ekf_filter(x, y, theta,sigma_mat, sigma_R, sigma_Q, v, omega, dt, measuremen
  
     return mu_bar, sigma_bar
 
+#Predicts the new state and corrects it using landmark measurements
+#Expands the state vector when new landmarks are observed
 def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_index):
     n = len(mu)
     th = normalize_angle(mu[2])
@@ -216,29 +240,35 @@ def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_i
     mu_bar[1] += v * dt * math.sin(th)
     mu_bar[2]  = normalize_angle(th + omega * dt)
 
+    #Jacobian of motion model w.r.t. location, identity for landmark states
     G = np.eye(n)
     G[0, 2] = -v * dt * math.sin(th)
     G[1, 2] =  v * dt * math.cos(th)
 
+    #Covariance matrix defining noise of motion model, zero for landmark states
     R_full = np.zeros((n, n))
     R_full[:3, :3] = sigma_R
 
     sigma_bar = G @ sigma @ G.T + R_full
 
+    #Correction for every measurement
     for reading in measurements:
         lid = reading["landmark_id"]
         r_obs = reading["distance"]
         phi_obs = reading["bearing_rad"]
 
+        #If landmark not seen yet, initialize
         if lid not in landmark_index:
+            #Assign next available index
             idx = len(landmark_index) * 2
             state_idx = 3 + idx
             landmark_index[lid] = state_idx
 
-            # Expand mu and sigma
+            #Estimate landmark position
             lx_est = mu_bar[0] + r_obs * math.cos(phi_obs + mu_bar[2])
             ly_est = mu_bar[1] + r_obs * math.sin(phi_obs + mu_bar[2])
 
+            #Expand mu and sigma
             new_size = len(mu_bar) + 2
             mu_bar_new = np.zeros(new_size)
             mu_bar_new[:len(mu_bar)] = mu_bar
@@ -246,29 +276,38 @@ def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_i
             mu_bar_new[state_idx + 1] = ly_est
             mu_bar = mu_bar_new
 
-            sigma_new = np.eye(new_size) * 1e6  # large uncertainty for new landmark
+            #New landmark gets large initial uncertainty
+            sigma_new = np.eye(new_size) * 1e6 
             sigma_new[:len(sigma_bar), :len(sigma_bar)] = sigma_bar
             sigma_bar = sigma_new
             n = new_size
 
+        #Landmark position
         j = landmark_index[lid]
         lx = mu_bar[j]
         ly = mu_bar[j + 1]
 
+        #Vector from predicted robot position to landmark
         dx = lx - mu_bar[0]
         dy = ly - mu_bar[1]
         q  = dx**2 + dy**2
+        
+        #Skip if distance is close to 0
         if q < 1e-9:
             continue
+        
         sqrt_q = math.sqrt(q)
 
-        # Expected measurement
+        #Predicted measurement
         z_hat = np.array([
             [sqrt_q],
             [normalize_angle(math.atan2(dy, dx) - mu_bar[2])]
         ])
+        #Actual measurement
         z = np.array([[r_obs], [normalize_angle(phi_obs)]])
 
+        #Jacobian of the measurement model w.r.t. full state
+        #Robot's pose and landmark j position columns are nonzero
         H = np.zeros((2, n))
         H[0, 0] = -dx / sqrt_q
         H[0, 1] = -dy / sqrt_q
@@ -279,10 +318,13 @@ def ekf_slam(mu, sigma, sigma_R, sigma_Q, v, omega, dt, measurements, landmark_i
         H[0, j+1] = dy / sqrt_q
         H[1, j] = -dy / q
         H[1, j+1] = dx / q
-
+        
+        #Predicted measurement covariance
         S = H @ sigma_bar @ H.T + sigma_Q
+        #Kalman gain
         K = sigma_bar @ H.T @ np.linalg.inv(S)
 
+        #Difference between actual and predicted measurement
         innov = z - z_hat
         innov[1, 0] = normalize_angle(innov[1, 0])
 
