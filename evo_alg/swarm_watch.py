@@ -381,7 +381,7 @@ def robot_pose_is_wall_safe(rx: float, ry: float, rtheta: float, walls) -> bool:
 
     # Extra strict check: reject poses where a robot edge crosses a wall segment.
     if hasattr(mm, "_any_edge_crossing"):
-        if mm._any_edge_crossing(rx, ry, rtheta, CAR_LENGTH, CAR_WIDTH, walls):
+        if mm.any_edge_crossing(rx, ry, rtheta, CAR_LENGTH, CAR_WIDTH, walls):
             return False
 
     return True

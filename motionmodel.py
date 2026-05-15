@@ -1,5 +1,6 @@
 import math
 import numpy as np
+
 EPS = 1e-9
 
 x, y, theta = 0.0, 0.0, 0.0
@@ -11,16 +12,18 @@ SENSOR_ANGLES_DEG = [i * 30 for i in range(12)]
 SENSOR_MAX_RANGE = 100.0
 LANDMARK_SENSOR_RANGE = 150.0
 
-
+#Normalizes any radian angle into the range [-pi, pi]
 def normalize_angle(angle_rad):
     return (angle_rad + math.pi) % (2 * math.pi) - math.pi
 
+#Converts world coordinates to screen pixel coordinates
+#Centers the view on the robot and flips the y-axis
 def world_to_screen(wx, wy, screen_width, screen_height):
     screen_x = wx - x + screen_width / 2
     screen_y = -(wy - y) + screen_height / 2
     return int(screen_x), int(screen_y)
 
-
+#Finds the closest point on a line segment (x1,y1)-(x2,y2) to point (px,py)
 def closest_point_on_segment(px, py, x1, y1, x2, y2):
     dx = x2 - x1
     dy = y2 - y1
@@ -32,23 +35,11 @@ def closest_point_on_segment(px, py, x1, y1, x2, y2):
     cy = y1 + t * dy
     return cx, cy, t, math.hypot(px - cx, py - cy)
 
-
+#Returns distance to this closest point
 def get_distance_to_segment(px, py, x1, y1, x2, y2):
     return closest_point_on_segment(px, py, x1, y1, x2, y2)[3]
 
-
-def segment_intersects_segment(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
-    dax, day = ax2 - ax1, ay2 - ay1
-    dbx, dby = bx2 - bx1, by2 - by1
-    cross = dax * dby - day * dbx
-    if abs(cross) < EPS:
-        return False
-    dx, dy = bx1 - ax1, by1 - ay1
-    t = (dx * dby - dy * dbx) / cross
-    u = (dx * day - dy * dax) / cross
-    return 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0
-
-
+#Used to detect robot edges crossing through a wall
 def segment_crosses_wall_interior(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
     dax, day = ax2 - ax1, ay2 - ay1
     dbx, dby = bx2 - bx1, by2 - by1
@@ -58,10 +49,11 @@ def segment_crosses_wall_interior(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2):
     dx, dy = bx1 - ax1, by1 - ay1
     t = (dx * dby - dy * dbx) / cross
     u = (dx * day - dy * dax) / cross
-    U_EPS = 1e-6 #error tolerance
+    
+    U_EPS = 1e-6
     return 0.0 <= t <= 1.0 and U_EPS < u < 1.0 - U_EPS
 
-
+#Returns the wall unit normal facing towards point (px, py)
 def wall_normal_for_point(wall, px, py):
     (x1, y1), (x2, y2) = wall
     dx = x2 - x1
@@ -71,24 +63,31 @@ def wall_normal_for_point(wall, px, py):
     ty = dy / length
     nx = -ty
     ny = tx
+    #Flip if pointing in the wrong way
     if (px - x1) * nx + (py - y1) * ny < 0:
         nx, ny = -nx, -ny
     return nx, ny
 
-
+#Calculates the four robot corners in world coordinates from some pose
 def get_robot_corners_at(target_x, target_y, target_theta, length, width):
     half_l, half_w = length / 2, width / 2
+    
+    #Corner offsets in local robot frame
     local_corners = [(half_l, half_w), (half_l, -half_w),
                      (-half_l, -half_w), (-half_l, half_w)]
     c, s = math.cos(target_theta), math.sin(target_theta)
+    
+    #Rotate and translate to world coordinates
     return [(target_x + lx*c - ly*s, target_y + lx*s + ly*c)
             for lx, ly in local_corners]
 
-
-def _wall_collision(wall, corners, edges, ref_x, ref_y, margin):
+#Checks if the robot collides with a single wall segment
+#Detects both edge and corners collisions
+def wall_collision(wall, corners, edges, ref_x, ref_y, margin):
     (w1x, w1y), (w2x, w2y) = wall
     edge_hit = any(segment_crosses_wall_interior(ex1, ey1, ex2, ey2, w1x, w1y, w2x, w2y)for (ex1, ey1), (ex2, ey2) in edges)
 
+    #Find closest robot corner to wall
     best_dist = float('inf')
     best_t = None
     for cx, cy in corners:
@@ -107,7 +106,7 @@ def _wall_collision(wall, corners, edges, ref_x, ref_y, margin):
 
     return (nx, ny, best_dist)
 
-
+#Returns a list of wall normals the robot is colliding with for sliding resolver
 def get_all_collisions(rx, ry, rtheta, length, width, walls, margin=2.0, ref_point=None):
     if ref_point is None:
         ref_point = (rx, ry)
@@ -119,14 +118,15 @@ def get_all_collisions(rx, ry, rtheta, length, width, walls, margin=2.0, ref_poi
 
     out = []
     for wall in walls:
-        hit = _wall_collision(wall, corners, edges, ref_x, ref_y, margin)
+        hit = wall_collision(wall, corners, edges, ref_x, ref_y, margin)
         if hit is not None:
             nx, ny, _ = hit
             out.append((nx, ny))
     return out
 
 
-def _any_edge_crossing(rx, ry, rtheta, length, width, walls):
+#Checks if any robot edge crosses through any wall
+def any_edge_crossing(rx, ry, rtheta, length, width, walls):
     corners = get_robot_corners_at(rx, ry, rtheta, length, width)
     n = len(corners)
     for i in range(n):
@@ -139,6 +139,7 @@ def _any_edge_crossing(rx, ry, rtheta, length, width, walls):
     return False
 
 
+#Checks if robot collides with any wall
 def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
     corners = get_robot_corners_at(rx, ry, rtheta, length, width)
     n = len(corners)
@@ -146,7 +147,7 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
 
     best = None
     for wall in walls:
-        hit = _wall_collision(wall, corners, edges, rx, ry, margin)
+        hit = wall_collision(wall, corners, edges, rx, ry, margin)
         if hit is None:
             continue
         _, _, depth = hit
@@ -155,6 +156,7 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
             corners,
             key=lambda c: get_distance_to_segment(c[0], c[1],
                                                   w1x, w1y, w2x, w2y))
+        #Keep deepest collision
         if best is None or depth < best[0]:
             best = (depth, wall, closest_corner)
     if best is None:
@@ -162,13 +164,13 @@ def robot_collides_with_walls(rx, ry, rtheta, length, width, walls, margin=2.0):
     _, wall, corner = best
     return True, wall, corner
 
-# Safely push the robot away from wall/corner contact - updated during swarm intelligence
+#Safely push the robot away from wall/corner contact, updated during swarm intelligence
 def resolve_wall_normal_response(rx, ry, rtheta, length, width, walls,
                                  margin=2.0, push_step=2.0, iterations=12):
     resolved = False
 
     for _ in range(iterations):
-        current_crossing = _any_edge_crossing(rx, ry, rtheta, length, width, walls)
+        current_crossing = any_edge_crossing(rx, ry, rtheta, length, width, walls)
         normals = get_all_collisions(
             rx, ry, rtheta, length, width, walls,
             margin=margin,
@@ -203,7 +205,7 @@ def resolve_wall_normal_response(rx, ry, rtheta, length, width, walls,
             cand_x = rx + nx * step
             cand_y = ry + ny * step
 
-            if not _any_edge_crossing(cand_x, cand_y, rtheta, length, width, walls):
+            if not any_edge_crossing(cand_x, cand_y, rtheta, length, width, walls):
                 rx, ry = cand_x, cand_y
                 resolved = True
                 accepted = True
@@ -214,7 +216,7 @@ def resolve_wall_normal_response(rx, ry, rtheta, length, width, walls,
         if not accepted:
             break
 
-    if _any_edge_crossing(rx, ry, rtheta, length, width, walls):
+    if any_edge_crossing(rx, ry, rtheta, length, width, walls):
         return rx, ry, False
 
     return rx, ry, resolved
@@ -232,6 +234,7 @@ def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width,iterations=8):
 
         collision_happened = True
 
+        #Remove the component of movement pushing into each wall
         any_blocked = False
         for nx, ny in normals:
             dot = dx * nx + dy * ny
@@ -242,17 +245,19 @@ def resolve_sliding(px, py, ptheta, dx, dy, walls, length, width,iterations=8):
 
         if not any_blocked:
             break
-
+        
+        #Stop if remaining movement is insignificant
         if dx * dx + dy * dy < 1e-10:
             dx = dy = 0.0
             break
 
-    if _any_edge_crossing(px + dx, py + dy, ptheta, length, width, walls):#sanity check
+    #Sanity check
+    if any_edge_crossing(px + dx, py + dy, ptheta, length, width, walls):
         return px, py, True
 
     return px + dx, py + dy, collision_happened
 
-
+#Computes the displacement for x, y and theta for the current time step
 def velocity_step():
     global x, y, theta, v, omega, dt
     if abs(omega) < EPS:
@@ -265,11 +270,12 @@ def velocity_step():
     dtheta = omega * dt
     return dx, dy, dtheta
 
-
+#Moves the robot by one time step and resolves wall collisions
 def update(walls, length, width):
     global x, y, theta
     dx, dy, dtheta = velocity_step()
-
+    
+    #Splits the movement into sub-steps to prevent tunneling 
     max_step = width * 0.4
     dist = math.hypot(dx, dy)
     steps = max(1, int(dist / max_step) + 1)
@@ -280,6 +286,7 @@ def update(walls, length, width):
 
     collision_occurred = False
     for _ in range(steps):
+         #Try to apply rotation
         new_theta = theta + step_dtheta
         rot_collided, _, _ = robot_collides_with_walls(
             x, y, new_theta, length, width, walls)
@@ -302,13 +309,7 @@ def update(walls, length, width):
 
     return collision_occurred
 
-
-def line_endpoint(length):
-    line_x = x + length * math.cos(theta)
-    line_y = y + length * math.sin(theta)
-    return line_x, line_y
-
-
+#Computes the intersection of a ray and a line segment
 def ray_segment_intersection(rx, ry, rdx, rdy, x1, y1, x2, y2):
     sx = x2 - x1
     sy = y2 - y1
@@ -326,65 +327,7 @@ def ray_segment_intersection(rx, ry, rdx, rdy, x1, y1, x2, y2):
     return None
 
 
-def nearest_intersection_on_segments(ray_origin_x, ray_origin_y,
-                                     ray_dir_x, ray_dir_y, segments,
-                                     max_range):
-    best_dist = max_range
-    best_hit = None
-    for seg in segments:
-        result = ray_segment_intersection(
-            ray_origin_x, ray_origin_y, ray_dir_x, ray_dir_y,
-            seg[0][0], seg[0][1], seg[1][0], seg[1][1])
-        if result is None:
-            continue
-        dist, ix, iy = result
-        if dist < best_dist:
-            best_dist = dist
-            best_hit = (ix, iy)
-    if best_hit is None:
-        return None
-    return best_dist, best_hit[0], best_hit[1]
-
-
-def get_landmark_readings_with_occlusion(landmark_groups, walls,
-                                         sensor_angles_deg=None,
-                                         max_range=SENSOR_MAX_RANGE):
-    if sensor_angles_deg is None:
-        sensor_angles_deg = SENSOR_ANGLES_DEG
-    readings = []
-    for landmark in landmark_groups:
-        landmark_id = landmark["id"]
-        center = landmark["center"]
-        segments = landmark["segments"]
-        best_reading = None
-        for angle_deg in sensor_angles_deg:
-            angle = theta + math.radians(angle_deg)
-            dx = math.cos(angle)
-            dy = math.sin(angle)
-            landmark_hit = nearest_intersection_on_segments(
-                x, y, dx, dy, segments, max_range)
-            if landmark_hit is None:
-                continue
-            landmark_dist, hit_x, hit_y = landmark_hit
-            wall_hit = nearest_intersection_on_segments(
-                x, y, dx, dy, walls, max_range)
-            if wall_hit is not None:
-                wall_dist, _, _ = wall_hit
-                if wall_dist < landmark_dist:
-                    continue
-            if best_reading is None or landmark_dist < best_reading["distance"]:
-                best_reading = {
-                    "landmark_id": landmark_id,
-                    "landmark_center": center,
-                    "angle_deg": angle_deg,
-                    "distance": landmark_dist,
-                    "hit_point": (hit_x, hit_y),
-                }
-        if best_reading is not None:
-            readings.append(best_reading)
-    return readings
-
-
+#Finds all landmarks in a certain range
 def get_landmark_measurements(landmark_groups, max_range=LANDMARK_SENSOR_RANGE):
     readings = []
     for landmark in landmark_groups:
@@ -393,8 +336,10 @@ def get_landmark_measurements(landmark_groups, max_range=LANDMARK_SENSOR_RANGE):
         delta_x = landmark_x - x
         delta_y = landmark_y - y
         distance = math.sqrt(delta_x ** 2 + delta_y ** 2)
+        
         if distance > max_range:
             continue
+        #Compute bearing relative to robot heading
         global_bearing = math.atan2(delta_y, delta_x)
         relative_bearing = normalize_angle(global_bearing - theta)
         readings.append({
@@ -405,7 +350,7 @@ def get_landmark_measurements(landmark_groups, max_range=LANDMARK_SENSOR_RANGE):
         })
     return readings
 
-
+#Casts rays at each sensor angle and returns the distance and hit point for nearest wall
 def get_sensor_readings(walls, sensor_angles_deg=None, max_range=SENSOR_MAX_RANGE):
     if sensor_angles_deg is None:
         sensor_angles_deg = SENSOR_ANGLES_DEG
@@ -417,6 +362,8 @@ def get_sensor_readings(walls, sensor_angles_deg=None, max_range=SENSOR_MAX_RANG
         best_dist = max_range
         hit_x = x + max_range * dx
         hit_y = y + max_range * dy
+        
+        #Finds nearest wall along ray
         for wall in walls:
             result = ray_segment_intersection(
                 x, y, dx, dy,
@@ -437,6 +384,7 @@ def get_sensor_readings(walls, sensor_angles_deg=None, max_range=SENSOR_MAX_RANG
     return readings
 
 
+#Calculates the four corner positions of the robot using its current global pose
 def get_robot_corners(length, width):
     half_l = length / 2
     half_w = width / 2
