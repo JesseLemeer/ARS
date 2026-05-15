@@ -38,7 +38,7 @@ except ModuleNotFoundError:
     )
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-GENOME_FILE   = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_staged.npy")
+GENOME_FILE   = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_staged_nomovement.npy")
 SWITCH_RADIUS = GOAL_RADIUS + 25 # switch goal when robot gets within this distance
 
 # World bounds (match map.py)

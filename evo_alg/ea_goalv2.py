@@ -1,6 +1,6 @@
 import os
 
-# Must be set BEFORE motionmodel imports pygame — but only when running headless
+#hides the pygame frame so it doesn't run for the entire evolution process
 if __name__ == "__main__":
     os.environ["SDL_VIDEODRIVER"] = "dummy"
     os.environ["SDL_AUDIODRIVER"] = "dummy"
@@ -11,13 +11,12 @@ import json
 import math
 import sys
 import time
+#asked claude to parallelize fitness evaluations, roughly 4x speedd up on my machine
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 
 import numpy as np
 
-# This file lives in <project>/evo_alg/. motionmodel.py, map.py, filter.py
-# live one level up. Put the project root on sys.path so they import.
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR.parent))
 
@@ -30,19 +29,19 @@ from ea_tools import NoveltyArchive as na
 from ea_tools import Curriculum as crc
 from ea_tools import EA_new as EA
 
-DT         = 0.05
+#simulation hypeparameters
+DT = 0.05
 CAR_LENGTH = 24
-CAR_WIDTH  = 14
-MAX_V      = 100.0
-MAX_OMEGA  = 5.0
-
+CAR_WIDTH = 14
+MAX_V = 100.0
+MAX_OMEGA = 5.0
+#noise matrices
 SIGMA_R = np.diag([2.0, 2.0, math.radians(2.0) ** 2])
 SIGMA_Q = np.diag([4.0, math.radians(3.0) ** 2])
 SIGMA_0 = np.diag([0.1, 0.1, math.radians(1.0) ** 2])
 
-START_X, START_Y = 0.0, 0.0   # default / watch-mode start
-
-START_POSITIONS = [
+START_X, START_Y = 0.0, 0.0#default for watch scripts
+START_POSITIONS = [ #to help combat trajectory memorization
     (   0.0,    0.0),
     (-200.0,    0.0),
     ( 200.0,    0.0),
@@ -50,14 +49,14 @@ START_POSITIONS = [
     (   0.0,  200.0),
 ]
 
-CURRICULUM_GOALS = [
+CURRICULUM_GOALS = [#to help combat trajectory memorization
     (-300.0,  100.0),
     (203.0, -189.0),
     ( 94.0,  261.0),
     (278.0, -203.0),
     (318.0,   43.0),
 ]
-INIT_POOL_SIZE  = 1
+INIT_POOL_SIZE = 1 #grow the pool gradually 
 POOL_GROW_EVERY = 12
 POOL_MASTER_THR = 3500
 
