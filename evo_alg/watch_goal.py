@@ -37,44 +37,42 @@ except ModuleNotFoundError:
         sensor_acts, goal_acts,
     )
 
-# ── Config ─────────────────────────────────────────────────────────────────────
 GENOME_FILE   = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome_staged_nomovement.npy")
 SWITCH_RADIUS = GOAL_RADIUS + 25 # switch goal when robot gets within this distance
 
 # World bounds (match map.py)
 WORLD_X_MIN, WORLD_X_MAX = -600.0, 450.0
 WORLD_Y_MIN, WORLD_Y_MAX = -400.0, 400.0
-WORLD_W = WORLD_X_MAX - WORLD_X_MIN   # 1050
-WORLD_H = WORLD_Y_MAX - WORLD_Y_MIN   # 800
+WORLD_W = WORLD_X_MAX - WORLD_X_MIN # 1050
+WORLD_H = WORLD_Y_MAX - WORLD_Y_MIN # 800
 
-SCALE    = 0.75
-SCREEN_W = int(WORLD_W * SCALE)   # 787
-SCREEN_H = int(WORLD_H * SCALE)   # 600
+SCALE = 0.75
+SCREEN_W = int(WORLD_W * SCALE) # 787
+SCREEN_H = int(WORLD_H * SCALE) # 600
 
 TRAIL_LEN = 400
 
 # Colours
-BG          = (230, 230, 230)
-BLACK       = (  0,   0,   0)
-WALL_COLOR  = ( 80,  80,  80)
-LM_COLOR    = (200, 150,   0)
-TRAIL_TRUE  = ( 70, 130, 180)
-TRAIL_EKF   = (255, 100,   0)
-ROBOT_OK    = (  0, 180,   0)
-ROBOT_HIT   = (220,   0,   0)
-EKF_COLOR   = (255, 100,   0)
-GOAL_COLOR  = (220,   0,   0)
+BG = (230, 230, 230)
+BLACK = (  0,   0,   0)
+WALL_COLOR = ( 80,  80,  80)
+LM_COLOR = (200, 150,   0)
+TRAIL_TRUE = ( 70, 130, 180)
+TRAIL_EKF = (255, 100,   0)
+ROBOT_OK = (  0, 180,   0)
+ROBOT_HIT = (220,   0,   0)
+EKF_COLOR = (255, 100,   0)
+GOAL_COLOR = (220,   0,   0)
 START_COLOR = ( 50, 150, 255)
 
 
 def w2s(wx: float, wy: float) -> tuple:
-    """World coordinates → fixed-camera screen pixels."""
     sx = int((wx - WORLD_X_MIN) / WORLD_W * SCREEN_W)
     sy = int((1.0 - (wy - WORLD_Y_MIN) / WORLD_H) * SCREEN_H)
     return sx, sy
 
 
-def main() -> None:
+def main():
     controller = FeedforwardController(N_INPUTS, N_HIDDEN, N_OUTPUTS)
     try:
         genome = np.load(GENOME_FILE)
@@ -108,9 +106,9 @@ def main() -> None:
      wall_follower, trail_true, trail_ekf,
      step, collisions, best_d) = reset()
 
-    curr_d  = math.hypot(START_X - goal_x, START_Y - goal_y)
+    curr_d = math.hypot(START_X - goal_x, START_Y - goal_y)
     running = True
-    clock   = pygame.time.Clock()
+    clock = pygame.time.Clock()
 
     while running:
         for event in pygame.event.get():
@@ -129,9 +127,9 @@ def main() -> None:
 
         # Sense
         wall_readings = mm.get_sensor_readings(walls)
-        raw_acts    = sensor_acts(wall_readings)
+        raw_acts = sensor_acts(wall_readings)
         goal_acts_v = goal_acts(est_x, est_y, est_theta, goal_x, goal_y)
-        nn_input    = np.concatenate([raw_acts, goal_acts_v])
+        nn_input = np.concatenate([raw_acts, goal_acts_v])
 
         wf_cmd = wall_follower.command(raw_acts)
         if wf_cmd is not None:
@@ -180,7 +178,6 @@ def main() -> None:
         if len(trail_ekf) > TRAIL_LEN:
             trail_ekf.pop(0)
 
-        # ── Draw ──────────────────────────────────────────────────────────────
         screen.fill(BG)
 
         # Walls

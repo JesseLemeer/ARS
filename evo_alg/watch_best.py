@@ -24,12 +24,12 @@ from evo_alg.ea_navigation import bootstrap_navigation, make_navigation_state, m
 GENOME_FILE  = sys.argv[1] if len(sys.argv) > 1 else str(BASE_DIR / "best_genome.npy")
 GOAL_X = float(sys.argv[2]) if len(sys.argv) > 3 else DEFAULT_GOAL_X
 GOAL_Y = float(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_GOAL_Y
-DT           = 1 / 60      # match 60-fps display
-CAR_LENGTH   = 24
-CAR_WIDTH    = 14
-MAX_V        = 100.0
-MAX_OMEGA    = 5.0
-TRAIL_LEN    = 300
+DT = 1 / 60
+CAR_LENGTH  = 24
+CAR_WIDTH = 14
+MAX_V = 100.0
+MAX_OMEGA = 5.0
+TRAIL_LEN = 300
 
 N_SENSORS = len(mm.SENSOR_ANGLES_DEG)
 N_GOAL_INPUTS = 3
@@ -41,12 +41,12 @@ N_OUTPUTS = 2
 SCREEN_W, SCREEN_H = 800, 600
 
 # Colours
-WHITE      = (255, 255, 255)
-BLACK      = (  0,   0,   0)
-BLUE       = ( 70, 130, 180)
-GREEN      = (  0, 200,   0)
-RED        = (200,   0,   0)
-ORANGE     = (255,  77,   0)
+WHITE = (255, 255, 255)
+BLACK = (  0,   0,   0)
+BLUE = ( 70, 130, 180)
+GREEN = (  0, 200,   0)
+RED = (200,   0,   0)
+ORANGE = (255,  77,   0)
 
 
 def get_sensors(walls, landmark_groups):
@@ -56,8 +56,8 @@ def get_sensors(walls, landmark_groups):
 
 
 def main():
-    # ── Load genome ────────────────────────────────────────────────────────────
     controller = RecurrentController(N_INPUTS, 20, N_OUTPUTS)
+    #loads genome
     try:
         genome = np.load(GENOME_FILE)
         print(f"Loaded genome from {GENOME_FILE}  ({len(genome)} genes)")
@@ -65,17 +65,15 @@ def main():
         print(f"ERROR: {GENOME_FILE} not found. Run python -m evo_alg.ea first.")
         sys.exit(1)
 
-    # ── Map ────────────────────────────────────────────────────────────────────
     walls, landmarks, landmark_groups = mp.create_map()
     obstacles = walls + landmarks
 
-    # ── Pygame setup ───────────────────────────────────────────────────────────
+    #pygame setup
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("Best Evolved Controller")
     font   = pygame.font.SysFont(None, 20)
-
-    # ── Reset robot ────────────────────────────────────────────────────────────
+    #reset robot start position
     def reset_robot():
         controller.reset()
         mm.x = -380
@@ -92,9 +90,9 @@ def main():
     trail: list[tuple[float, float]] = []
     est_trail: list[tuple[float, float]] = []
 
-    step          = 0
+    step = 0
     total_fitness = 0.0
-    collisions    = 0
+    collisions = 0
 
     running = True
     py_clock = pygame.time.Clock()
@@ -104,7 +102,7 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:         # R → reset robot
+                if event.key == pygame.K_r:#allow reset without restarting the whole simulation
                     nav_state = reset_robot()
                     trail.clear()
                     est_trail.clear()
@@ -116,13 +114,13 @@ def main():
 
         mm.dt = DT
 
-        # Sense → think → act
+        
         sensor_acts = mapped_sensor_activations(nav_state)
         acts = navigation_inputs(nav_state, GOAL_X, GOAL_Y, sensor_activations=sensor_acts)
-        out       = controller.forward(acts, genome)
-        mm.v      = float(out[0]) * MAX_V
-        mm.omega  = float(out[1]) * MAX_OMEGA
-        hit       = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
+        out = controller.forward(acts, genome)
+        mm.v = float(out[0]) * MAX_V
+        mm.omega = float(out[1]) * MAX_OMEGA
+        hit = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
         wall_readings, landmark_measurements = get_sensors(walls, landmark_groups)
         update_navigation(
             state=nav_state,
@@ -137,11 +135,10 @@ def main():
         if hit:
             collisions += 1
 
-        # Fitness bookkeeping
-        V     = abs(mm.v)    / MAX_V
+        V = abs(mm.v)/ MAX_V
         delta = abs(mm.omega) / MAX_OMEGA
         i_max = float(np.max(sensor_acts))
-        phi   = max(0.0, V * (1.0 - math.sqrt(delta)) * (1.0 - i_max))
+        phi = max(0.0, V * (1.0 - math.sqrt(delta)) * (1.0 - i_max))
         total_fitness += phi
         step  += 1
 
@@ -153,7 +150,6 @@ def main():
         if len(est_trail) > TRAIL_LEN:
             est_trail.pop(0)
 
-        # ── Draw ───────────────────────────────────────────────────────────────
         screen.fill(WHITE)
 
         nav_state.grid.draw(
@@ -165,7 +161,6 @@ def main():
             robot_y=mm.y,
         )
 
-        # Walls & landmarks
         for seg in obstacles:
             s = mm.world_to_screen(seg[0][0], seg[0][1], SCREEN_W, SCREEN_H)
             e = mm.world_to_screen(seg[1][0], seg[1][1], SCREEN_W, SCREEN_H)
@@ -175,8 +170,8 @@ def main():
         sx, sy = mm.world_to_screen(mm.x, mm.y, SCREEN_W, SCREEN_H)
         for i, r in enumerate(wall_readings):
             hx, hy = r["hit_point"]
-            hs     = mm.world_to_screen(hx, hy, SCREEN_W, SCREEN_H)
-            alpha  = int(raw_acts[i] * 180)        # brighter = closer obstacle
+            hs = mm.world_to_screen(hx, hy, SCREEN_W, SCREEN_H)
+            alpha = int(raw_acts[i] * 180)# brighter = closer obstacle
             pygame.draw.line(screen, (alpha, alpha, 200), (sx, sy), hs, 1)
 
         #Mark goal

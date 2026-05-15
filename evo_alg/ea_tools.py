@@ -2,29 +2,28 @@ import collections
 import math
 import numpy as np
 
-MAX_V    = 100.0
+MAX_V = 100.0
 MAX_OMEGA = 5.0
 
 WALLFOLLOW_TRIGGER = 2
-WALLFOLLOW_WINDOW  = 25
-WALLFOLLOW_STEPS   = 100
-STUCK_DIST_THR     = 20.0   # units — robot must travel this far in STUCK_STEPS or be deemed stuck
-STUCK_STEPS        = 50     # steps to measure displacement over
+WALLFOLLOW_WINDOW = 25
+WALLFOLLOW_STEPS = 100
+STUCK_DIST_THR = 20.0   # units — robot must travel this far in STUCK_STEPS or be deemed stuck
+STUCK_STEPS = 50     # steps to measure displacement over
 
-NOVELTY_K    = 15
-ARCHIVE_CAP  = 300
+NOVELTY_K = 15 #how many closest neighbours are considered when quantifying novelty
+ARCHIVE_CAP = 300 #number of behaviours stored to be compared against
 ARCHIVE_PROB = 0.05
 
-MUTATION_RATE  = 0.12
+MUTATION_RATE = 0.12
 MUTATION_SCALE = 0.20
-ELITE_COUNT    = 4
+ELITE_COUNT = 4
 CROSSOVER_RATE = 0.70
-TOURNAMENT_K   = 3
+TOURNAMENT_K = 3
 
 
+#two-hidden-layer feedforward network; original controller used in early navigation experiments
 class NeuralController:
-    """Feed-forward net: inputs -> hidden1 -> hidden2 -> outputs (all tanh)."""
-
     def __init__(self, n_inputs=15, n_hidden1=20, n_hidden2=12, n_outputs=2):
         self.n_inputs = n_inputs
         self.n_hidden1 = n_hidden1
@@ -37,7 +36,6 @@ class NeuralController:
         self.genome_size = self._w1_size + self._w2_size + self._w3_size
 
     def reset(self):
-        """No-op — feedforward nets have no state."""
         pass
 
     def forward(self, sensor_inputs, genome):
@@ -55,6 +53,7 @@ class NeuralController:
     def random_genome(self, scale=0.5):
         return np.random.randn(self.genome_size) * scale
 
+#Elman recurrent network; hidden state lets the robot integrate sensor history across steps
 class RecurrentController:
     def __init__(self, n_inputs=15, n_hidden=20, n_outputs=2):
         self.n_inputs = n_inputs
@@ -91,9 +90,8 @@ class RecurrentController:
         return np.tanh(W_hy @ self.hidden + b_y)
 
     def random_genome(self, scale=0.5):
-        """Smart init: small recurrent weights so initial dynamics stay bounded."""
+        #small scale to keep it bounded
         g = np.random.randn(self.genome_size) * scale
-        # Damp W_hh — exploding hidden dynamics is the #1 way recurrent EA fails
         recurrent_scale = 0.3 / math.sqrt(self.n_hidden)
         g[self._w_xh : self._w_xh + self._w_hh] = (
             np.random.randn(self._w_hh) * recurrent_scale
@@ -101,6 +99,7 @@ class RecurrentController:
         return g
 
 
+#single-hidden-layer feedforward network used in all goal-reaching experiments
 class FeedforwardController:
     def __init__(self, n_in, n_hidden, n_out):
         self.n_in, self.n_hidden, self.n_out = n_in, n_hidden, n_out
@@ -110,14 +109,17 @@ class FeedforwardController:
         self._b2 = n_out
         self.genome_size = self._s1 + self._b1 + self._s2 + self._b2
 
-    def reset(self) -> None:
+    def reset(self):
         pass
 
     def forward(self, x, genome):
         i = 0
-        W1 = genome[i:i + self._s1].reshape(self.n_hidden, self.n_in); i += self._s1
-        b1 = genome[i:i + self._b1];                                    i += self._b1
-        W2 = genome[i:i + self._s2].reshape(self.n_out, self.n_hidden); i += self._s2
+        W1 = genome[i:i + self._s1].reshape(self.n_hidden, self.n_in); 
+        i += self._s1
+        b1 = genome[i:i + self._b1];
+        i += self._b1
+        W2 = genome[i:i + self._s2].reshape(self.n_out, self.n_hidden); 
+        i += self._s2
         b2 = genome[i:i + self._b2]
         h = np.tanh(W1 @ x + b1)
         return np.tanh(W2 @ h + b2)
@@ -126,17 +128,18 @@ class FeedforwardController:
         return np.random.randn(self.genome_size) * 2
 
 
+#failsafe recovery behaviour that overrides the controller when the robot is stuck or crashing against a wall
 class WallFollowRecovery:
-    _TARGET_RIGHT = 0.55
-    _KP = 2.5
-    _STUCK_THRESHOLD = 3   # consecutive steps with no movement before reversing
+    TARGET_RIGHT = 0.55
+    KP = 2.5
+    STUCK_THRESHOLD = 3 # consecutive steps with no movement before reversing
 
     def __init__(self):
-        self._buf     = collections.deque(maxlen=WALLFOLLOW_WINDOW)
+        self._buf = collections.deque(maxlen=WALLFOLLOW_WINDOW)
         self._pos_buf = collections.deque(maxlen=STUCK_STEPS)
         self._steps_left = 0
         self._stuck_count = 0
-        self._prev_pos    = None
+        self._prev_pos = None
 
     @property
     def active(self):
@@ -182,25 +185,26 @@ class WallFollowRecovery:
         right = float(np.mean(raw_acts[9:11]))
 
         # Wedged and not moving at all → reverse to break free
-        if self._stuck_count >= self._STUCK_THRESHOLD:
+        if self._stuck_count >= self.STUCK_THRESHOLD:
             return -MAX_V * 0.3, -MAX_OMEGA * 0.7
 
         # Wall directly ahead → back up while turning rather than pushing into it
         if front > 0.78:
             return -MAX_V * 0.2, MAX_OMEGA * 0.85
 
-        omega = self._KP * (right - self._TARGET_RIGHT)
+        omega = self.KP * (right - self.TARGET_RIGHT)
         v = MAX_V * (0.55 - 0.25 * front)
         return (float(np.clip(v, 5.0, MAX_V)),
                 float(np.clip(omega, -MAX_OMEGA, MAX_OMEGA)))
 
 
+#novelty search archive; promotes exploration by rewarding behaviourally distinct individuals
 class NoveltyArchive:
     def __init__(self, k=NOVELTY_K, cap=ARCHIVE_CAP, p_add=ARCHIVE_PROB):
-        self.k     = k
-        self.cap   = cap
+        self.k = k
+        self.cap = cap
         self.p_add = p_add
-        self.buf   = collections.deque(maxlen=cap)
+        self.buf = collections.deque(maxlen=cap)
 
     def maybe_add(self, b):
         if np.random.random() < self.p_add:
@@ -210,7 +214,7 @@ class NoveltyArchive:
         pool = list(self.buf) + [np.asarray(bb, dtype=float) for bb in pop_behaviours]
         if len(pool) <= 1:
             return 0.0
-        b_arr    = np.asarray(b, dtype=float)
+        b_arr = np.asarray(b, dtype=float)
         pool_arr = np.asarray(pool)
         d = np.linalg.norm(pool_arr - b_arr, axis=1)
         d_sorted = np.sort(d)
@@ -222,20 +226,21 @@ class NoveltyArchive:
         return float(np.mean(d_sorted[:self.k]))
 
 
+#gradually grows the active training goal pool as the population masters the current set
 class Curriculum:
     def __init__(self, all_goals, init_size, grow_every, master_thr):
         self.all_goals  = list(all_goals)
-        self.pool       = list(all_goals[:init_size])
+        self.pool = list(all_goals[:init_size])
         self.grow_every = grow_every
         self.master_thr = master_thr
         self._gen_since_growth = 0
 
     def slate(self, k):
-        """Draw K goals from the active pool. Without replacement when possible."""
+        #samples K goals from the active pool. Without replacement when possible, with when necessary
         replace = k > len(self.pool)
         idx = np.random.choice(len(self.pool), size=k, replace=replace)
         return [self.pool[i] for i in idx]
-
+    #grow pool when requirements are met
     def maybe_grow(self, best_gen_objective):
         self._gen_since_growth += 1
         if self._gen_since_growth < self.grow_every:
@@ -248,7 +253,7 @@ class Curriculum:
         self._gen_since_growth = 0
         return True
 
-
+#first EA implemented, uses NeuralController (largest genome); more difficult to evolve due to size
 class EA:
     def __init__(
         self,
@@ -332,6 +337,7 @@ class EA:
         return stats
 
 
+#updated EA with separate objective/novelty fitness tracking and configurable selection strategy (tournament or roulette)
 class EA_new:
     def __init__(self, pop_size, genome_size, init_fn,
                  mutation_rate=MUTATION_RATE, mutation_scale=MUTATION_SCALE,
@@ -346,21 +352,21 @@ class EA_new:
         self.tournament_k = tournament_k
         self.selection = selection
 
-        self.generation   = 0
-        self.population   = [init_fn() for _ in range(pop_size)]
+        self.generation = 0
+        self.population = [init_fn() for _ in range(pop_size)]
         self.combined_fit = np.zeros(pop_size)
 
-        self.best_obj    = -np.inf
+        self.best_obj = -np.inf
         self.best_genome = None
-        self.history     = []
+        self.history = []
 
     def _tournament(self):
         idx = np.random.choice(self.pop_size, self.tournament_k, replace=False)
         return self.population[idx[np.argmax(self.combined_fit[idx])]].copy()
 
     def _roulette(self):
-        order = np.argsort(self.combined_fit)          # worst → best
-        ranks = np.arange(1, self.pop_size + 1, dtype=float)  # 1 … N
+        order = np.argsort(self.combined_fit)
+        ranks = np.arange(1, self.pop_size + 1, dtype=float)
         probs = ranks / ranks.sum()
         idx = np.random.choice(self.pop_size, p=probs)
         return self.population[order[idx]].copy()
@@ -375,7 +381,7 @@ class EA_new:
         return p1.copy()
 
     def _mutate(self, g):
-        g    = g.copy()
+        g  = g.copy()
         mask = np.random.random(self.genome_size) < self.mutation_rate
         g[mask] += np.random.randn(mask.sum()) * self.mutation_scale
         return g
@@ -412,21 +418,22 @@ class EA_new:
         self.population = new_pop
         self.generation += 1
         return stats
+#EA variant used by ea_goal.py with curriculum goal rotation; simpler objective tracking without novelty
 class EA_goal:
     def __init__(
         self, pop_size, genome_size, mutation_rate, mutation_scale,
         elite_count, crossover_rate=0.70, tournament_k=3, init_fn=None,
     ):
-        self.pop_size       = pop_size
-        self.genome_size    = genome_size
-        self.mutation_rate  = mutation_rate
+        self.pop_size = pop_size
+        self.genome_size = genome_size
+        self.mutation_rate = mutation_rate
         self.mutation_scale = mutation_scale
         self.crossover_rate = crossover_rate
-        self.elite_count    = elite_count
-        self.tournament_k   = tournament_k
-        self.generation     = 0
-        self.best_fitness   = -np.inf
-        self.best_genome    = None
+        self.elite_count = elite_count
+        self.tournament_k = tournament_k
+        self.generation = 0
+        self.best_fitness = -np.inf
+        self.best_genome = None
         self.fitness_history: list = []
 
         make = init_fn if init_fn is not None else (
@@ -435,24 +442,24 @@ class EA_goal:
         self.population = [make() for _ in range(pop_size)]
         self.fitnesses  = np.zeros(pop_size)
 
-    def _tournament_select(self) -> np.ndarray:
+    def _tournament_select(self):
         idx  = np.random.choice(self.pop_size, self.tournament_k, replace=False)
         best = idx[np.argmax(self.fitnesses[idx])]
         return self.population[best].copy()
 
-    def _crossover(self, p1: np.ndarray, p2: np.ndarray) -> np.ndarray:
+    def _crossover(self, p1, p2):
         if np.random.random() < self.crossover_rate:
             mask = np.random.random(self.genome_size) < 0.5
             return np.where(mask, p1, p2)
         return p1.copy()
 
-    def _mutate(self, genome: np.ndarray) -> np.ndarray:
+    def _mutate(self, genome):
         genome = genome.copy()
         mask   = np.random.random(self.genome_size) < self.mutation_rate
         genome[mask] += np.random.randn(mask.sum()) * self.mutation_scale
         return genome
 
-    def evolve(self, fitnesses: list) -> dict:
+    def evolve(self, fitnesses):
         self.fitnesses = np.array(fitnesses, dtype=float)
 
         best_idx = int(np.argmax(self.fitnesses))

@@ -30,25 +30,25 @@ MUTATION_RATE = 0.10
 MUTATION_SCALE = 0.25
 ELITE_COUNT = 4
 
-PROGRESS_GAIN = 4.0#for all time closeness
+PROGRESS_GAIN = 4.0 #reward for moving in the right direction
 
-DISPLACEMENT_WINDOW = 30
-DISPLACEMENT_GAIN = 0.4
+DISPLACEMENT_WINDOW = 30 #steps over which net displacement is measured
+DISPLACEMENT_GAIN = 0.4 #reward for actually covering ground, discourages spinning in place
 
-GOAL_RADIUS = 5.0
-GOAL_BONUS = 500.0
+GOAL_RADIUS = 5.0 #robot must come within this distance to count as reaching the goal
+GOAL_BONUS = 500.0 #large fitness boost to any genome that actually reaches the goal
 
-TERMINAL_CLOSENESS_BONUS = 300.0
+TERMINAL_CLOSENESS_BONUS = 300.0 #partial credit at end of episode for goal proximity
 
-COLLISION_PENALTY = 50.0
-COLLISION_TERMINATE = 10
-TERMINATE_PENALTY = 300.0
+COLLISION_PENALTY = 50.0 #disincentivize wall collisions
+COLLISION_TERMINATE = 10 #assume car breaks after excessive number of collisions
+TERMINATE_PENALTY = 300.0 #large penalty for breaking
 
-WALL_PROXIMITY_PENALTY = 2.0
+WALL_PROXIMITY_PENALTY = 2.0 #per-step penalty for driving close to walls
 # Spin penalty: rotating without moving.
-SPIN_PENALTY = 3.0
+SPIN_PENALTY = 3.0 #penalises turning without forward motion
 
-MAX_STAGNATION = 250
+MAX_STAGNATION = 250 #stop if stuck for this long
 
 ACCESSIBLE_LM = [
     [-300, 100], [-312, 145], [278, -203],
@@ -57,13 +57,13 @@ ACCESSIBLE_LM = [
 ]
 
 GOAL_X, GOAL_Y = 278, -203  # fallback single goal
-GOALS_PER_EVAL = 4
+GOALS_PER_EVAL = 4 #number of goals sampled per evaluation episode
 TRAINING_GOALS = [tuple(g) for g in ACCESSIBLE_LM]
 
 START_X, START_Y = -480, 337
 
-CURRICULUM_START_RADIUS = 200.0
-CURRICULUM_FRACTION = 0.6
+CURRICULUM_START_RADIUS = 200.0 #initial radius of goals considered reachable from start
+CURRICULUM_FRACTION = 0.6 #fraction of training over which curriculum radius expands to full range
 
 STUCK_DIST = 5.0
 STUCK_WINDOW = 120
@@ -109,7 +109,8 @@ def update_after_movement(nav_state):
     )
 
 def evaluate_combined(genome: np.ndarray, goal_sequence) -> float:
-    # Normalize input
+    #runs one episode navigating through a sequence of goals, accumulating fitness
+    # Normalize input — allow passing a single (x,y) tuple or a list of goals
     if isinstance(goal_sequence, tuple) and len(goal_sequence) == 2 \
             and not isinstance(goal_sequence[0], (tuple, list)):
         goal_sequence = [goal_sequence]
@@ -198,6 +199,7 @@ MODES = {"combined": evaluate_combined}
 
 
 def select_eval_goals(generation: int):
+    #curriculum: gradually expand the reachable goal radius so the robot learns nearby goals first
     if not TRAINING_GOALS:
         return [(GOAL_X, GOAL_Y)]
 
@@ -220,6 +222,7 @@ def evaluate(genome, eval_goals):
     return float(MODES[FITNESS_MODE](genome, eval_goals))
 
 def main() -> None:
+    #turns off the pygame frame so I don't have to watch the entire evolution process (takes hours, better for battery)
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
     os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")

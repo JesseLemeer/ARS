@@ -41,45 +41,31 @@ SIGMA_Q = np.diag([4.0, math.radians(3.0) ** 2])
 SIGMA_0 = np.diag([0.1, 0.1, math.radians(1.0) ** 2])
 
 START_X, START_Y = 0.0, 0.0#default for watch scripts
-START_POSITIONS = [ #to help combat trajectory memorization
-    (   0.0,    0.0),
-    (-200.0,    0.0),
-    ( 200.0,    0.0),
-    (   0.0, -200.0),
-    (   0.0,  200.0),
-]
+START_POSITIONS = [(0.0,0.0),(-200.0,0.0),(200.0,0.0),(0.0,-200.0),(0.0,200.0)]#to help combat trajectory memorization
 
-CURRICULUM_GOALS = [#to help combat trajectory memorization
-    (-300.0,  100.0),
-    (203.0, -189.0),
-    ( 94.0,  261.0),
-    (278.0, -203.0),
-    (318.0,   43.0),
-]
+CURRICULUM_GOALS = [(-300.0,  100.0),(203.0, -189.0),( 94.0,  261.0),(278.0, -203.0),(318.0,43.0)]
 INIT_POOL_SIZE = 1 #grow the pool gradually 
 POOL_GROW_EVERY = 12
-POOL_MASTER_THR = 3500
+POOL_MASTER_THR = 3500 #if learn a pool quickly, can proceed early
 
-GOAL_X, GOAL_Y = CURRICULUM_GOALS[1]
+GOAL_X, GOAL_Y = CURRICULUM_GOALS[0]
 
-GOAL_RADIUS    = 12.0
-EVAL_STEPS     = 1200
-MAX_STAGNATION = 300
+GOAL_RADIUS = 12.0 #since the landmark is round, we assume the robot to have reached the goal
+EVAL_STEPS = 1200 #how long the simulation runs for accumulating fitness function
+MAX_STAGNATION = 300 #stop if stuck for this long
 
-GOAL_BONUS      = 5000.0
-GOAL_TIME_BONUS = 5000.0
-PROGRESS_GAIN   = 5.0
-HEADING_GAIN    = 0.5    # per step: reward for velocity component pointing toward goal
-SMOOTH_TERMINAL   = 25.0
-CLOSENESS_BONUS = 300.0
-COLLISION_PENALTY = 50.0
-COLLISION_TERMINATE = 50
-TERMINATE_PENALTY = 500.0
+GOAL_BONUS = 5000.0 #large fitness boost to any genome that actually reaches the goal
+GOAL_TIME_BONUS = 5000.0 #bonus for reaching goal directly, discourages excessive roaming
+PROGRESS_GAIN = 5.0 #reward for moving in the right direction
+HEADING_GAIN = 0.5 # per step: reward for velocity component pointing toward goal
+SMOOTH_TERMINAL = 25.0 #terminal reward for smooth forward movement, discourages spinning
+CLOSENESS_BONUS = 300.0 #partial credit at end of episode for goal proximity
+COLLISION_PENALTY = 50.0 #disincentivize wall collisions
+COLLISION_TERMINATE = 50 #assume car breaks after excessive number of collisions
+TERMINATE_PENALTY = 500.0 #large penalty for breaking
 
-NOVELTY_WEIGHT = 0.3
-NOVELTY_K = 15
-ARCHIVE_CAP = 300
-ARCHIVE_PROB = 0.05
+NOVELTY_WEIGHT = 0.3 #promotes exploration
+
 
 POP_SIZE = 50
 N_GENERATIONS = 100
@@ -94,24 +80,24 @@ N_INPUTS  = len(mm.SENSOR_ANGLES_DEG) + 3
 N_HIDDEN  = 8
 N_OUTPUTS = 2
 
+#wall follow failsafe conditions
 WALLFOLLOW_TRIGGER = 4
 WALLFOLLOW_WINDOW = 25
 WALLFOLLOW_STEPS = 80
-
-# World objects, created once. Each subprocess will re-create these on import
-# (separate process memory) — that's fine and the cost is negligible.
 walls, landmarks, landmark_groups = mp.create_map()
 obstacles = walls + landmarks
 
-# Set to None or 1 if you want to disable parallelism for debugging.
+#AI implemented, aims to give speed boost by parallelizing fitness evaluations on multiple cores
 N_WORKERS = min(cpu_count(), POP_SIZE)
 
 
 def sensor_acts(wall_readings):
+    #converts sensor readings into proximity measures, highest values where wall is closest
     return np.clip(np.array([1.0 - r["distance"] / mm.SENSOR_MAX_RANGE for r in wall_readings]),0.0, 1.0)
 
 
 def goal_acts(est_x, est_y, est_theta, goal_x, goal_y):
+    #enables passing goal relative to robot position; bearing encoded as sin/cos to avoid angle wrap issues
     dx, dy = goal_x - est_x, goal_y - est_y
     dist = math.hypot(dx, dy)
     if dist < 1e-9:
@@ -122,8 +108,11 @@ def goal_acts(est_x, est_y, est_theta, goal_x, goal_y):
 
 def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_y=START_Y):
     controller.reset()
-    mm.x, mm.y, mm.theta = start_x, start_y, 0.0
-    mm.v = mm.omega = 0.0
+    mm.x = start_x
+    mm.y = start_y
+    mm.theta = 0.0
+    mm.v = 0.0
+    mm.omega = 0.0
     mm.dt = DT
 
     est_x, est_y, est_theta = start_x, start_y, 0.0
@@ -141,27 +130,31 @@ def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_
     n_steps = 0
 
     goal_reached = False
-    steps_used   = EVAL_STEPS
+    steps_used = EVAL_STEPS
 
     for step in range(EVAL_STEPS):
         mm.dt = DT
-
+        # Sense
         wall_readings = mm.get_sensor_readings(walls)
-        raw_acts = sensor_acts(wall_readings)
-        goal_a = goal_acts(est_x, est_y, est_theta, goal_x, goal_y)
-        nn_input = np.concatenate([raw_acts, goal_a])
+        proximities = sensor_acts(wall_readings)
+        goal = goal_acts(est_x, est_y, est_theta, goal_x, goal_y)
+        nn_input = np.concatenate([proximities, goal])
 
-        wf_cmd = wall_follower.command(raw_acts)
+        # Motor commands
+        wf_cmd = wall_follower.command(proximities)
+        #wall follower is a failsafe if robot does weird stuff while crashing, so overrides actual controller
         if wf_cmd is not None:
             mm.v, mm.omega = wf_cmd
         else:
+            #if no wall collision issue just listen to controller
             out = controller.forward(nn_input, genome)
-            mm.v     = float(out[0]) * MAX_V
+            mm.v = float(out[0]) * MAX_V
             mm.omega = float(out[1]) * MAX_OMEGA
 
         hit = mm.update(obstacles, CAR_LENGTH, CAR_WIDTH)
         wall_follower.tick(hit, mm.x, mm.y)
 
+        # EKF, assumes contact sensors allow detection of hitting wall
         eff_v = 0.0 if hit else mm.v
         eff_omega = 0.0 if hit else mm.omega
         lm_meas = mm.get_landmark_measurements(landmark_groups)
@@ -173,6 +166,7 @@ def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_
         est_y = float(mu_bar[1, 0])
         est_theta = float(mu_bar[2, 0])
 
+        # Collision penalty
         if hit:
             objective  -= COLLISION_PENALTY
             collisions += 1
@@ -205,6 +199,7 @@ def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_
             goal_reached = True
             steps_used   = step + 1
             break
+        
     if goal_reached:
         objective += GOAL_BONUS
         objective += GOAL_TIME_BONUS * max(0.0, 1.0 - steps_used / EVAL_STEPS)
@@ -220,7 +215,7 @@ def evaluate_episode(genome, controller, goal_x, goal_y, start_x=START_X, start_
     endpoint = (float(mm.x), float(mm.y))
     return objective, endpoint
 
-
+#evaluates the fitness on sampled goals (slate) from curriculum
 def evaluate_slate(genome, controller, slate, start_x=START_X, start_y=START_Y):
     objs, ends = [], []
     for (gx, gy) in slate:
@@ -244,31 +239,27 @@ def main():
             mutation_rate=MUTATION_RATE, mutation_scale=MUTATION_SCALE,
             elite_count=ELITE_COUNT, crossover_rate=CROSSOVER_RATE,
             tournament_k=TOURNAMENT_K)
-    archive = na()
-    curriculum = crc(CURRICULUM_GOALS, INIT_POOL_SIZE,
-                            POOL_GROW_EVERY, POOL_MASTER_THR)
+    archive = na()#to check for novelty
+    curriculum = crc(CURRICULUM_GOALS, INIT_POOL_SIZE, POOL_GROW_EVERY, POOL_MASTER_THR)
 
     print(f"Parallel evaluation: {N_WORKERS} workers (detected {cpu_count()} cores)")
 
     t0 = time.time()
-    with Pool(processes=N_WORKERS) as pool:
+    with Pool(processes=N_WORKERS) as pool:#AI generated parallelism
         for gen in range(N_GENERATIONS):
             gen_t0 = time.time()
             slate  = curriculum.slate(K_EVAL_GOALS)
-
-            # Parallel fitness evaluation — replaces the per-genome for loop.
-            # Each worker gets (genome, slate) and returns (objective, endpoint).
+            #parallelized evaluation
             worker_args = [(g, slate) for g in ea.population]
             results = pool.map(_eval_worker, worker_args)
             objectives = [r[0] for r in results]
             behaviours = [r[1] for r in results]
-
-            # Novelty + EA step run in the main process (cheap relative to sim).
+            # Novelty + EA
             novelties = [archive.novelty(b, behaviours) for b in behaviours]
             combined = [o + NOVELTY_WEIGHT * n for o, n in zip(objectives, novelties)]
 
             for b in behaviours:
-                archive.maybe_add(b)
+                archive.maybe_add(b)#adds behaviour probabilistically to avoid bias in archive
 
             stats = ea.step(objectives, combined)
             grew  = curriculum.maybe_grow(stats["gen_obj"])
