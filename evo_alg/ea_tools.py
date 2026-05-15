@@ -123,7 +123,7 @@ class FeedforwardController:
         return np.tanh(W2 @ h + b2)
 
     def random_genome(self):
-        return np.random.randn(self.genome_size) * 0.4
+        return np.random.randn(self.genome_size) * 2
 
 
 class WallFollowRecovery:
@@ -336,7 +336,7 @@ class EA_new:
     def __init__(self, pop_size, genome_size, init_fn,
                  mutation_rate=MUTATION_RATE, mutation_scale=MUTATION_SCALE,
                  elite_count=ELITE_COUNT, crossover_rate=CROSSOVER_RATE,
-                 tournament_k=TOURNAMENT_K):
+                 tournament_k=TOURNAMENT_K, selection='tournament'):
         self.pop_size = pop_size
         self.genome_size  = genome_size
         self.mutation_rate = mutation_rate
@@ -344,6 +344,7 @@ class EA_new:
         self.elite_count = elite_count
         self.crossover_rate = crossover_rate
         self.tournament_k = tournament_k
+        self.selection = selection
 
         self.generation   = 0
         self.population   = [init_fn() for _ in range(pop_size)]
@@ -356,6 +357,16 @@ class EA_new:
     def _tournament(self):
         idx = np.random.choice(self.pop_size, self.tournament_k, replace=False)
         return self.population[idx[np.argmax(self.combined_fit[idx])]].copy()
+
+    def _roulette(self):
+        order = np.argsort(self.combined_fit)          # worst → best
+        ranks = np.arange(1, self.pop_size + 1, dtype=float)  # 1 … N
+        probs = ranks / ranks.sum()
+        idx = np.random.choice(self.pop_size, p=probs)
+        return self.population[order[idx]].copy()
+
+    def _select(self):
+        return self._roulette() if self.selection == 'roulette' else self._tournament()
 
     def _crossover(self, p1, p2):
         if np.random.random() < self.crossover_rate:
@@ -392,8 +403,8 @@ class EA_new:
         new_pop = [self.population[i].copy() for i in order[:self.elite_count]]
 
         while len(new_pop) < self.pop_size:
-            p1 = self._tournament()
-            p2 = self._tournament()
+            p1 = self._select()
+            p2 = self._select()
             c  = self._crossover(p1, p2)
             c  = self._mutate(c)
             new_pop.append(c)
