@@ -1,6 +1,5 @@
 """
-Headless swarm experiment runner.
-Purpose:
+Experiment 3: Comparing Different scenarios
 - Compare 1 vs 2 vs 4 vs 5 robots
 - Compare with/without shared occupancy map
 - Compare with/without robot-robot avoidance
